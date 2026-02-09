@@ -9,6 +9,7 @@ from helper_functions import (_get_model_instance, balanced_class_weights, check
                               calculate_pr_metrics_batched, save_pr_artifacts, save_metrics_to_pickle, 
                               save_dataframe_to_pickle)
 from utilities import FocalLoss, set_seed
+from training_functions import train_and_validate_with_loader, train_and_validate
 #from training_funcs import train_and_validate
 import pandas as pd
 import os
@@ -60,9 +61,9 @@ def hyperparameter_tuning(
                 if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
                     #Do not use neighbourloader for these datasets
                     if check_study_existence(model_name, dataset_name): 
-                        study = funcs_for_optuna.load_study(study_name=study_name, storage=db_path)
+                        study = optuna.load_study(study_name=study_name, storage=db_path)
                     else:
-                        study = funcs_for_optuna.create_study(
+                        study = optuna.create_study(
                             direction='maximize',
                             study_name=study_name,
                             storage=db_path,
@@ -75,7 +76,7 @@ def hyperparameter_tuning(
                             alpha_focal = balanced_class_weights(data.y.cpu().numpy())
                             study.optimize(
                                 lambda trial: run_trial_with_cleanup(
-                                    objective, model_name, trial, model_name, data, alpha_focal=alpha_focal),
+                                    objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name),
                                     n_trials=n_trials,
                                     callbacks=[_optuna_progress_callback]
                                 )
@@ -97,7 +98,7 @@ def hyperparameter_tuning(
 
     return model_parameters
 
-def objective(trial, model_name: str, alpha_focal, data=None, masks=None):
+def objective(trial, model: str, data=None, alpha_focal=None, dataset_name=None, masks=None):
     # Get model instance with trial-suggested hyperparameters
     learning_rate = trial.suggest_float('learning_rate', 0.005, 0.05, log=False)
     weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
@@ -124,5 +125,23 @@ def objective(trial, model_name: str, alpha_focal, data=None, masks=None):
     })
     
     # Pass train_mask to _get_model_instance for XGB leakage prevention
-    model_instance = _get_model_instance(trial, model, data, device, train_mask=train_mask)   
+    model_instance = _get_model_instance(trial, model, data, device, train_mask=train_mask)
+
+    wrapper_models = ['MLP', 'GCN', 'GAT', 'GIN']
+    sklearn_models = ['SVM', 'XGB', 'RF']
     
+    if model in sklearn_models:
+        num_epochs = 50  
+    elif model == "MLP":
+        num_epochs = 50
+    else: # GNNs
+        num_epochs = 400
+    
+    
+    if model in wrapper_models:
+        optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
+        model_wrapper.model.to('cuda' if torch.cuda.is_available() else 'cpu')
+        if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
+            #Do not use neighbourloader for these datasets
+            #I am here and struggling with the model wrapper, train_and_validate and neighbourloader interactions.
