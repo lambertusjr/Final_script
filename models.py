@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv, GINConv
 #from helper_functions import calculate_metrics, calculate_pr_metrics_batched, save_pr_artifacts
 from sklearn.metrics import f1_score
+from torchmetrics.classification import BinaryF1Score
 
 #%% Modelwrapper
 
@@ -129,14 +130,29 @@ class ModelWrapper:
         loss = self.criterion(out_sliced, y_sliced)
         loss.backward()
         self.optimiser.step()
-
-        # No loop, so we compute metrics directly on the sliced data
-        y_true = y_sliced.detach().cpu().numpy()
-        y_pred = out_sliced.argmax(dim=1).detach().cpu().numpy()
-
-        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary') 
         
+    def mini_eval_full(self, data, masks):
+        self.model.eval()
+        device = next(self.model.parameters()).device
+        eval_mask = masks[0].to('cuda' if torch.cuda.is_available() else 'cpu') if masks is not None else None
+        with torch.no_grad():
+            data = data.to(device)
+            out_sliced = self.model(data[eval_mask])
+
+            if masks is not None:
+                y_sliced = data.y[0]
+            else:
+                y_sliced = data.y
+
+            loss = self.criterion(out_sliced, y_sliced)
+
+            pred = out_sliced.argmax(dim=1)
+
+            f1_metric = BinaryF1Score().to(device)
+            f1_illicit = f1_metric(pred, y_sliced).item()
+
         return float(loss.detach()), f1_illicit
+
 
     def evaluate_full(self, data, mask):
         self.model.eval()
@@ -206,13 +222,6 @@ class ModelWrapper:
         loss.backward()
         self.optimiser.step()
 
-        # No loop, so we compute metrics directly on the sliced data
-        y_true = y_sliced.detach().cpu().numpy()
-        y_pred = out_sliced.argmax(dim=1).detach().cpu().numpy()
-
-        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary') 
-        
-        return float(loss.detach()), f1_illicit
 
     def evaluate_elliptic(self, data, masks):
         self.model.eval()
@@ -253,4 +262,32 @@ class ModelWrapper:
         metrics['y_true'] = y_true
         
         return float(loss.detach()), metrics
+    
+def mini_eval_elliptic(self, data, masks):
+    self.model.eval()
+    device = next(self.model.parameters()).device
+    eval_mask = masks[0].to('cuda' if torch.cuda.is_available() else 'cpu') if masks is not None else None
+    with torch.no_grad():
+        data = data.to(device)
+        out_sliced = self.model(data[eval_mask])
+
+        if masks is not None:
+            y_sliced = data.y[0]
+        else:
+            y_sliced = data.y
+
+        perf_eval_mask = masks[1].to('cuda' if torch.cuda.is_available() else 'cpu') if masks is not None else None
+        out_sliced = out_sliced[perf_eval_mask]
+        y_sliced = y_sliced[perf_eval_mask]
+
+        loss = self.criterion(out_sliced, y_sliced)
+
+        pred = out_sliced.argmax(dim=1)
+
+        f1_metric = BinaryF1Score().to(device)
+        f1_illicit = f1_metric(pred, y_sliced).item()
+
+    
+
+    return float(loss.detach()), f1_illicit
     

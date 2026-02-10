@@ -15,6 +15,9 @@ import pandas as pd
 import os
 from datetime import datetime
 from torch_geometric.loader import NeighborLoader
+from torch.optim import adam
+
+from torchmetrics.classification import BinaryF1Score
 
 DEFAULT_EARLY_STOP = {
     "patience": 20,
@@ -136,6 +139,11 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
         num_epochs = 50
     else: # GNNs
         num_epochs = 400
+        
+    if dataset_name == "Elliptic":
+        elliptic_train_masks = [masks['train_mask'], masks['train_perf_eval_mask'], masks['val_mask'], masks['val_perf_eval_mask']]
+    else:
+        non_elliptic_train_mask = [masks['train_mask'], masks['val_mask']]
     
     
     if model in wrapper_models:
@@ -144,9 +152,32 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
         model_wrapper.model.to('cuda' if torch.cuda.is_available() else 'cpu')
         if dataset_name == "Elliptic":
             #Do not use neighbourloader for these datasets
-            elliptic_train_masks = np.maximum(masks['train_mask'].cpu().numpy(), masks['perf_eval_mask'].cpu().numpy()).to('cuda' if torch.cuda.is_available() else 'cpu')
+            
             best_f1_model_wts, best_f1 = train_and_validate(
                 model_wrapper, data, elliptic_train_masks, num_epochs, dataset_name, **trial_early_stop_args
             )
         elif dataset_name in ["AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
-            non_elliptic_train_mask = np.maximum(masks['train_mask'].cpu().numpy(), masks['val_mask'].cpu().numpy()).to('cuda' if torch.cuda.is_available() else 'cpu')
+            best_f1_model_wts, best_f1 = train_and_validate(
+                model_wrapper, data, non_elliptic_train_mask, num_epochs, dataset_name, **trial_early_stop_args
+            )
+            
+    elif model in sklearn_models:
+        gpu_enabled_models = ['XGB']
+        if model in gpu_enabled_models:
+            train_x = data.x[masks['train_mask']]
+            train_y = data.y[masks['train_mask']] 
+            val_x = data.x[masks['val_mask']]
+            val_y = data.y[masks['val_mask']]
+        else:
+            train_x = data.x[masks['train_mask']].cpu().numpy()
+            train_y = data.y[masks['train_mask']].cpu().numpy() 
+            val_x = data.x[masks['val_mask']].cpu().numpy()
+            val_y = data.y[masks['val_mask']].cpu().numpy()
+        
+        model_instance.fit(train_x, train_y)
+        pred = model_instance.predict(val_x)
+        f1_metric = BinaryF1Score().to(pred.device)
+        f1_illicit = f1_metric(pred, val_y).item()
+        return float(f1_illicit)
+            
+        

@@ -51,7 +51,7 @@ def train_and_validate_with_loader(
 def train_and_validate(
     model_wrapper,
     data,
-    masks: dict,   
+    masks,   
     num_epochs,
     dataset_name,
     patience=None,
@@ -70,13 +70,22 @@ def train_and_validate(
     best_f1 = -1
     epochs_without_improvement = 0
     best_f1_model_wts = None
-    train_mask = masks['train_mask'].to(data.y.device)
+    masks = {k: v.to('cuda' if torch.cuda.is_available() else 'cpu') for k, v in masks.items()}
+    #extracting masks into training and validation groups
+    if dataset_name == "Elliptic":
+        elliptic_training_masks = [masks['train_mask'], masks['train_perf_mask']]
+        elliptic_validation_masks = [masks['val_mask'], masks['val_perf_mask']]
+
     for epoch in range(num_epochs):
+        #Train step and evaluation step to determine best weights.
         if dataset_name == "Elliptic":
-            train_loss, f1_illicit = model_wrapper.train_step_elliptic(data, masks)
+            model_wrapper.train_step_elliptic(data, elliptic_training_masks)
+            loss, f1_illicit = model_wrapper.mini_eval_elliptic(data, elliptic_validation_masks)
+            
         elif dataset_name in full_batch_datasets:
-            train_loss, f1_illicit = model_wrapper.train_step_full(data, masks)
-    
+            model_wrapper.train_step_full(data, masks['train_mask'])
+            loss, f1_illicit = model_wrapper.mini_eval_full(data, masks['val_mask']) #Passing val_mask for evaluation 
+
         
         current_f1 = f1_illicit
         
