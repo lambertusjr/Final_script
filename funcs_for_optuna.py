@@ -98,7 +98,7 @@ def hyperparameter_tuning(
 
     return model_parameters
 
-def objective(trial, model: str, data=None, alpha_focal=None, dataset_name=None, masks=None):
+def objective(trial, model, data, alpha_focal, dataset_name, masks):
     # Get model instance with trial-suggested hyperparameters
     learning_rate = trial.suggest_float('learning_rate', 0.005, 0.05, log=False)
     weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
@@ -142,6 +142,11 @@ def objective(trial, model: str, data=None, alpha_focal=None, dataset_name=None,
         optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
         model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
         model_wrapper.model.to('cuda' if torch.cuda.is_available() else 'cpu')
-        if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
+        if dataset_name == "Elliptic":
             #Do not use neighbourloader for these datasets
-            #I am here and struggling with the model wrapper, train_and_validate and neighbourloader interactions.
+            elliptic_train_masks = np.maximum(masks['train_mask'].cpu().numpy(), masks['perf_eval_mask'].cpu().numpy()).to('cuda' if torch.cuda.is_available() else 'cpu')
+            best_f1_model_wts, best_f1 = train_and_validate(
+                model_wrapper, data, elliptic_train_masks, num_epochs, dataset_name, **trial_early_stop_args
+            )
+        elif dataset_name in ["AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
+            non_elliptic_train_mask = np.maximum(masks['train_mask'].cpu().numpy(), masks['val_mask'].cpu().numpy()).to('cuda' if torch.cuda.is_available() else 'cpu')

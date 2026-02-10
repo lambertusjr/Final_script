@@ -14,7 +14,7 @@ class ModelWrapper:
         self.optimiser = optimiser
         self.criterion = criterion
 
-    def train_step(self, loader):
+    def train_step_loader(self, loader):
         self.model.train()
         total_loss = 0
         device = next(self.model.parameters()).device
@@ -59,7 +59,7 @@ class ModelWrapper:
 
         return total_loss / len(loader), f1_illicit
     
-    def evaluate(self, loader):
+    def evaluate_loader(self, loader):
         self.model.eval()
         total_loss = 0
         all_preds, all_probs, all_labels = [], [], []
@@ -98,3 +98,159 @@ class ModelWrapper:
         metrics['preds'] = y_pred
         metrics['y_true'] = y_true
         return total_loss / len(loader), metrics
+    
+    
+    
+    def train_step_full(self, data, mask):
+        self.model.train()
+        device = next(self.model.parameters()).device
+        data = data.to(device)
+        self.optimiser.zero_grad()
+        train_mask = mask[0].to('cuda' if torch.cuda.is_available() else 'cpu')
+        out = self.model(data[train_mask])
+        
+        # Apply mask if provided to select specific nodes (e.g., train_mask)
+        if mask is not None:
+            out_sliced = out
+            y_sliced = data.y[train_mask]
+        else:
+            out_sliced = out
+            y_sliced = data.y
+        
+        # # Validate labels before computing loss
+        # num_classes = out_sliced.shape[-1]
+        # if y_sliced.min() < 0 or y_sliced.max() >= num_classes:
+        #     raise ValueError(
+        #         f"Invalid labels detected: min={y_sliced.min().item()}, "
+        #         f"max={y_sliced.max().item()}, but model has {num_classes} classes. "
+        #         f"Labels must be in range [0, {num_classes-1}]"
+        #     )
+        
+        loss = self.criterion(out_sliced, y_sliced)
+        loss.backward()
+        self.optimiser.step()
+
+        # No loop, so we compute metrics directly on the sliced data
+        y_true = y_sliced.detach().cpu().numpy()
+        y_pred = out_sliced.argmax(dim=1).detach().cpu().numpy()
+
+        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary') 
+        
+        return float(loss.detach()), f1_illicit
+
+    def evaluate_full(self, data, mask):
+        self.model.eval()
+        device = next(self.model.parameters()).device
+
+        with torch.no_grad():
+            data = data.to(device)
+            val_mask = mask[0].to('cuda' if torch.cuda.is_available() else 'cpu')
+            out = self.model(data[val_mask])
+            
+            # Apply mask if provided (e.g., val_mask or test_mask)
+            if mask is not None:
+                out_sliced = out
+                y_sliced = data.y[val_mask]
+            else:
+                out_sliced = out
+                y_sliced = data.y
+            
+            loss = self.criterion(out_sliced, y_sliced)
+            
+            probs = torch.softmax(out_sliced, dim=1)
+            pred = out_sliced.argmax(dim=1)
+            
+            y_true = y_sliced.cpu().numpy()
+            y_pred = pred.cpu().numpy()
+            y_prob = probs.cpu().numpy()
+
+        metrics = calculate_metrics(y_true, y_pred, y_prob)
+        
+        metrics['probs'] = y_prob
+        metrics['preds'] = y_pred
+        metrics['y_true'] = y_true
+        
+        return float(loss.detach()), metrics
+    
+    def train_step_elliptic(self, data, mask):
+        self.model.train()
+        device = next(self.model.parameters()).device
+        data = data.to(device)
+        self.optimiser.zero_grad()
+        
+        train_mask = mask[0].to('cuda' if torch.cuda.is_available() else 'cpu')
+        out = self.model(data[train_mask])
+        
+        # Apply mask if provided to select specific nodes (e.g., train_mask)
+        if mask is not None:
+            out_sliced = out
+            y_sliced = data.y[train_mask]
+        else:
+            out_sliced = out
+            y_sliced = data.y
+        
+        # # Validate labels before computing loss
+        # num_classes = out_sliced.shape[-1]
+        # if y_sliced.min() < 0 or y_sliced.max() >= num_classes:
+        #     raise ValueError(
+        #         f"Invalid labels detected: min={y_sliced.min().item()}, "
+        #         f"max={y_sliced.max().item()}, but model has {num_classes} classes. "
+        #         f"Labels must be in range [0, {num_classes-1}]"
+        #     )
+        #Extracting performance masks and applying to out and y to compute loss and metrics only on the known nodes of the known nodes subset of the training set.
+        train_perf_eval_mask = mask[1].to('cuda' if torch.cuda.is_available() else 'cpu')
+        out_sliced = out_sliced[train_perf_eval_mask]
+        y_sliced = y_sliced[train_perf_eval_mask]
+        
+        loss = self.criterion(out_sliced, y_sliced)
+        loss.backward()
+        self.optimiser.step()
+
+        # No loop, so we compute metrics directly on the sliced data
+        y_true = y_sliced.detach().cpu().numpy()
+        y_pred = out_sliced.argmax(dim=1).detach().cpu().numpy()
+
+        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary') 
+        
+        return float(loss.detach()), f1_illicit
+
+    def evaluate_elliptic(self, data, masks):
+        self.model.eval()
+        device = next(self.model.parameters()).device
+        #Extract the full mask, not only the performance nodes, since we want to predict on all known nodes of the known nodes subset of the training set, but we will evaluate performance only on the performance evaluation mask.
+        eval_mask = masks[0].to('cuda' if torch.cuda.is_available() else 'cpu') if masks is not None else None
+        with torch.no_grad():
+            data = data.to(device)
+            out_sliced = self.model(data[eval_mask])
+            
+            
+            # Apply mask if provided (e.g., val_mask or test_mask)
+            if masks is not None:
+                out_sliced = out_sliced
+                y_sliced = data.y[0]
+            else:
+                out_sliced = out_sliced 
+                y_sliced = data.y
+            
+            #Applying performance evaluation mask since we can only predict on known nodes.
+            perf_eval_mask = masks[1].to('cuda' if torch.cuda.is_available() else 'cpu') if masks is not None else None
+            out_sliced = out_sliced[perf_eval_mask]
+            y_sliced = y_sliced[perf_eval_mask]
+            
+            loss = self.criterion(out_sliced, y_sliced)
+            
+            probs = torch.softmax(out_sliced, dim=1)
+            pred = out_sliced.argmax(dim=1)
+            
+            y_true = y_sliced.cpu().numpy()
+            y_pred = pred.cpu().numpy()
+            y_prob = probs.cpu().numpy()
+
+        metrics = calculate_metrics(y_true, y_pred, y_prob)
+        
+        metrics['probs'] = y_prob
+        metrics['preds'] = y_pred
+        metrics['y_true'] = y_true
+        
+        return float(loss.detach()), metrics
+    

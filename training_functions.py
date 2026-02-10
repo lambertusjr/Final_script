@@ -51,8 +51,9 @@ def train_and_validate_with_loader(
 def train_and_validate(
     model_wrapper,
     data,
-    masks,   
+    masks: dict,   
     num_epochs,
+    dataset_name,
     patience=None,
     min_delta=0.0,
     log_early_stop=False
@@ -63,12 +64,18 @@ def train_and_validate(
         'roc_auc': [], 'PRAUC': [], 'kappa': [] 
     }
     
+    #List for which datasets can run on full batching loop without running out of memory. For these datasets, we will not use neighbourloader and will train on the full graph.
+    full_batch_datasets = ["AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"] #Elliptic is also included but uses a different training loop.
+    
     best_f1 = -1
     epochs_without_improvement = 0
     best_f1_model_wts = None
     train_mask = masks['train_mask'].to(data.y.device)
     for epoch in range(num_epochs):
-        train_loss, f1_illicit = model_wrapper.train_step(data.x[train_mask], data.y[train_mask])
+        if dataset_name == "Elliptic":
+            train_loss, f1_illicit = model_wrapper.train_step_elliptic(data, masks)
+        elif dataset_name in full_batch_datasets:
+            train_loss, f1_illicit = model_wrapper.train_step_full(data, masks)
     
         
         current_f1 = f1_illicit
