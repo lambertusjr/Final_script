@@ -232,7 +232,6 @@ class ModelWrapper:
             data = data.to(device)
             out_sliced = self.model(data[eval_mask])
             
-            
             # Apply mask if provided (e.g., val_mask or test_mask)
             if masks is not None:
                 out_sliced = out_sliced
@@ -286,8 +285,6 @@ def mini_eval_elliptic(self, data, masks):
 
         f1_metric = BinaryF1Score().to(device)
         f1_illicit = f1_metric(pred, y_sliced).item()
-
-    
-
+        
     return float(loss.detach()), f1_illicit
     

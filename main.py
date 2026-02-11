@@ -9,7 +9,7 @@ if seeded_run:
     set_seed(42)
     print("Seeded run with seed 42")
 else:
-    seed = np.random.SeedSequence().entropy % (2**32)
+    seed = np.random.SeedSequence().generate_state(1)[0]
     set_seed(seed)
 #%% Hyperparameter tuning
 datasets = ["Elliptic", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]
@@ -72,7 +72,7 @@ for idx, dataset in enumerate(datasets, 1):
             
             model_parameters = hyperparameter_tuning(
                 models=models,
-                dataset=dataset,
+                dataset_name=dataset,
                 data=data,
                 masks=masks
             )

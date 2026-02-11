@@ -34,10 +34,10 @@ def _early_stop_args_from(source: dict) -> dict:
     }
 
 def hyperparameter_tuning(
-        models: list[str],
-        dataset_name: str,
+        models,
+        dataset_name,
         data,
-        masks: dict[str, torch.Tensor]
+        masks
         ):
     print(f"Starting hyperparameter tuning for dataset: {dataset_name}")
     model_parameters = {model_name: [] for model_name in models}
@@ -160,6 +160,9 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
             best_f1_model_wts, best_f1 = train_and_validate(
                 model_wrapper, data, non_elliptic_train_mask, num_epochs, dataset_name, **trial_early_stop_args
             )
+        else:
+            #These datasets requre neighbourloader due to memory constraints, so we use the training function that incorporates neighbourloader.
+            #best_f1_model_wts, best_f1 = train_and_validate_with_loader(
             
     elif model in sklearn_models:
         gpu_enabled_models = ['XGB']
