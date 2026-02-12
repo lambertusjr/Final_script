@@ -1,0 +1,20 @@
+{
+  "IBM_AML_HiSmall_GAT_tuning": 26994186,
+  "IBM_AML_HiSmall_GIN_tuning": 13497093,
+  "IBM_AML_HiSmall_MLP_tuning": 13497093,
+  "IBM_AML_HiSmall_GCN_tuning": 2359296,
+  "IBM_AML_HiSmall_GAT_evaluation": 14696835,
+  "IBM_AML_HiSmall_GIN_evaluation": 14696835,
+  "IBM_AML_HiSmall_MLP_evaluation": 14696835,
+  "IBM_AML_HiSmall_GCN_evaluation": 1992294,
+  "Elliptic_GAT_tuning": 29491,
+  "Elliptic_GIN_tuning": 29491,
+  "AMLSim_GAT_tuning": 134998265,
+  "AMLSim_GIN_tuning": 134998265,
+  "AMLSim_MLP_tuning": 134998265,
+  "AMLSim_GCN_tuning": 134998265,
+  "AMLSim_GAT_evaluation": 142498169,
+  "AMLSim_GIN_evaluation": 142498169,
+  "AMLSim_MLP_evaluation": 142498169,
+  "AMLSim_GCN_evaluation": 142498169
+}
