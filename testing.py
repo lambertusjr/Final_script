@@ -52,265 +52,94 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
 
     # Store regular masks in easily accessible format
     regular_masks = [masks["train_mask"], masks["val_mask"], masks["test_mask"]]
-
-    # Optimisation: Lazy-load CPU arrays ONLY if using an sklearn model
-    sklearn_data = None
-
+    # Store perf_eval masks for Elliptic in easily accessible format if dataset is Elliptic
     if dataset_name == "Elliptic":
-        if model_name in sklearn_models:
-            # Extract performance evaluation masks for Elliptic (excludes nodes with y=-1)
-            train_perf_eval_mask = masks["train_perf_eval_mask"]
-            val_perf_eval_mask = masks["val_perf_eval_mask"]
-            test_perf_eval_mask = masks["test_perf_eval_mask"]
+        elliptic_perf_masks = [masks['train_perf_eval_mask'], masks['val_perf_eval_mask'], masks['test_perf_eval_mask']]
+    # Optimisation: Lazy-load CPU arrays ONLY if using an sklearn model
+    
+    #Optimised cpu conversion to a simple function that also checks whether conversion is necessary based on model type.
+    sklearn_data = None
+    needs_conversion = model_name in sklearn_models
+    convert = lambda t: t.cpu().numpy() if needs_conversion else t
 
-            # Store perf_eval masks in easily accessible format
-            perf_eval_masks = [train_perf_eval_mask, val_perf_eval_mask, test_perf_eval_mask]
-
-            sklearn_data = {
-                'train_x': data.x[regular_masks[0]].cpu().numpy(),
-                'train_perf_x': data.x[perf_eval_masks[0]].cpu().numpy(),
-                'train_y': data.y[regular_masks[0]].cpu().numpy(),
-                'train_perf_y': data.y[perf_eval_masks[0]].cpu().numpy(),
-                'val_x': data.x[regular_masks[1]].cpu().numpy(),
-                'val_perf_x': data.x[perf_eval_masks[1]].cpu().numpy(),
-                'val_y': data.y[regular_masks[1]].cpu().numpy(),
-                'val_perf_y': data.y[perf_eval_masks[1]].cpu().numpy(),
-                'test_x': data.x[regular_masks[2]].cpu().numpy(),
-                'test_perf_x': data.x[perf_eval_masks[2]].cpu().numpy(),
-                'test_y': data.y[regular_masks[2]].cpu().numpy(),
-                'test_perf_y': data.y[perf_eval_masks[2]].cpu().numpy()
-            }
-        elif model_name in gpu_sklearn_models:
-            # Extract performance evaluation masks for Elliptic (excludes nodes with y=-1)
-            train_perf_eval_mask = masks["train_perf_eval_mask"]
-            val_perf_eval_mask = masks["val_perf_eval_mask"]
-            test_perf_eval_mask = masks["test_perf_eval_mask"]
-
-            # Store perf_eval masks in easily accessible format
-            perf_eval_masks = [train_perf_eval_mask, val_perf_eval_mask, test_perf_eval_mask]
-
-            sklearn_data = {
-                'train_x': data.x[regular_masks[0]],
-                'train_perf_x': data.x[perf_eval_masks[0]],
-                'train_y': data.y[regular_masks[0]],
-                'train_perf_y': data.y[perf_eval_masks[0]],
-                'val_x': data.x[regular_masks[1]],
-                'val_perf_x': data.x[perf_eval_masks[1]],
-                'val_y': data.y[regular_masks[1]],
-                'val_perf_y': data.y[perf_eval_masks[1]],
-                'test_x': data.x[regular_masks[2]],
-                'test_perf_x': data.x[perf_eval_masks[2]],
-                'test_y': data.y[regular_masks[2]],
-                'test_perf_y': data.y[perf_eval_masks[2]]
-            }
-    else:
-        if model_name in sklearn_models:
-            sklearn_data = {
-                'train_x': data.x[regular_masks[0]].cpu().numpy(),
-                'train_y': data.y[regular_masks[0]].cpu().numpy(),
-                'val_x': data.x[regular_masks[1]].cpu().numpy(),
-                'val_y': data.y[regular_masks[1]].cpu().numpy(),
-                'test_x': data.x[regular_masks[2]].cpu().numpy(),
-                'test_y': data.y[regular_masks[2]].cpu().numpy()
-            }
-        elif model_name in gpu_sklearn_models:
-            sklearn_data = {
-                'train_x': data.x[regular_masks[0]],
-                'train_y': data.y[regular_masks[0]],
-                'val_x': data.x[regular_masks[1]],
-                'val_y': data.y[regular_masks[1]],
-                'test_x': data.x[regular_masks[2]],
-                'test_y': data.y[regular_masks[2]]
-            }
+    # Optimisation of data preparation for sklearn models.
+    if model_name in sklearn_models or model_name in gpu_sklearn_models:
+        splits = ['train', 'val', 'test']
+        sklearn_data = {}
+        if dataset_name == "Elliptic":
+            for i, split in enumerate(splits):
+                sklearn_data[f'{split}_x'] = convert(data.x[regular_masks[i]])
+                sklearn_data[f'{split}_perf_x'] = convert(data.x[elliptic_perf_masks[i]])
+                sklearn_data[f'{split}_y'] = convert(data.y[regular_masks[i]])
+                sklearn_data[f'{split}_perf_y'] = convert(data.y[elliptic_perf_masks[i]])
+        else:
+            for i, split in enumerate(splits):
+                sklearn_data[f'{split}_x'] = convert(data.x[regular_masks[i]])
+                sklearn_data[f'{split}_y'] = convert(data.y[regular_masks[i]])
     
     # Optimisation: Pre-calculate batch sizes and NeighborLoaders OUTSIDE the seed loop
     train_loader, val_loader, test_loader = None, None, None
     alpha_focal = None
     batch_loader_datasets = ["IBM_AML_HiMedium", "IBM_AML_LiMedium"]
     detailed_metrics = []
-    if model_name in wrapper_models:
-        if dataset_name not in batch_loader_datasets:
-            print(f"  > Using FULL BATCH for {model_name} on {dataset_name} (no NeighborLoader)")
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            alpha_focal = balanced_class_weights(data.y[regular_masks[0]]).to(device)
-            n_runs = 10 if model_name == 'RF' else 30
-            for i in range(n_runs):
-                run_id = f"run_{i+1}"
-                print(f"  > Run {i+1}/{n_runs}")
-                
-                #Running fixed trial as I already have the correct hyperparameters
-                fixed_trial = optuna.trial.FixedTrial(best_params)
-                model_instance = _get_model_instance(fixed_trial, model_name, data, device, train_mask = masks['train_mask'])
-                y_true = data.y[regular_masks[2] if dataset_name != "Elliptic" else masks["train_perf_eval_mask"]]
-                y_pred, y_probs = None, None
-                run_metrics = {}
-                learning_rate = best_params.get('learning_rate', 0.01)
-                weight_decay = best_params.get('weight_decay', 5e-4)
-                gamma_focal = best_params.get('gamma_focal', 2.0)
-                patience = best_params.get('early_stop_patience', 20)
-                min_delta = best_params.get('early_stop_min_delta', 1e-3)
-                
-                criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
-                optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
-                
-                model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
-                model_wrapper.model.to(device)
-                
-                num_epochs = 50 if model_name == "MLP" else 150
-                
-                best_f1_model_wts, _ = train_and_validate(
-                                        model_wrapper,
-                                        data,
-                                        masks,   
-                                        num_epochs,
-                                        dataset_name,
-                                        patience=patience,
-                                        min_delta=min_delta,
-                                        log_early_stop=False
-                                    )
-                model_wrapper.model.load_state_dict(best_wts)
-                
-                if dataset_name == "Elliptic":
-                    masks = [masks['test_mask'], masks['test_perf_eval_mask']]
-                    test_loss, test_metrics = model_wrapper.evaluate_elliptic(data, )
-                    
-                
-                y_probs = test_metrics['probs'] 
-                y_pred = test_metrics['preds']
-                y_true = test_metrics['y_true'] 
-                run_metrics = test_metrics 
-                
-        else:
-        
-            from utilities import load_batch_size_by_phase
-            alpha_focal = balanced_class_weights(data.y[regular_masks[0]]).to(device)
-            
-            print(f"Finding optimal EVALUATION batch size for {model_name}...")
-            eval_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='evaluation')
-            
-            if eval_batch_size is None:
-                def model_builder_for_eval_size_check():
-                    class Mocktrial:
-                        def suggest_int(self, name, low, high, step=None): return high
-                        def suggest_float(self, name, low, high, log=False): return low
-                        def suggest_categorical(self, name, choices): return choices[0]
-                    return _get_model_instance(Mocktrial(), model_name, data, device, train_mask=train_mask)
-                
-                eval_batch_size = find_optimal_batch_size(
-                    model_builder_for_eval_size_check, data, device, train_mask,
-                    num_neighbors=[10, 10], dataset_name=dataset_name, model_name=model_name, phase='evaluation'
-                )
-            print(f"  > Using EVALUATION batch size {eval_batch_size} for {model_name}")
+    alpha_focal = balanced_class_weights(sklearn_data['train_y']) if model_name in sklearn_models or model_name in gpu_sklearn_models else balanced_class_weights(data.y[regular_masks[0]])
 
-            tuning_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='tuning') or 65536
-            if tuning_batch_size == 65536:
-                print(f"  > Using default TUNING batch size 65536 (no cached value found)")
-                
-            num_neighbors = [10, 10]
-            train_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=tuning_batch_size, input_nodes=train_mask)
-            val_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=eval_batch_size, input_nodes=val_mask)
-            test_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=eval_batch_size, input_nodes=test_mask)
-
-    detailed_metrics = []
-    n_runs = 30 if model_name == 'RF' else 30
-    seeds = [secrets.randbits(32) for _ in range(n_runs)] 
     
+    use_loader = dataset_name in batch_loader_datasets
+    
+    seeds = [secrets.randbits(32) for _ in range(n_runs)]
+    
+    train_loader, val_loader, test_loader = None, None, None
+    
+    #Elliptic will never use loader so no need to account for elliptic masks
+    if use_loader:
+        from utilities import load_batch_size_by_phase
+        num_neighbors = [10, 10]
+
+        # Evaluation batch size
+        print(f"Finding optimal EVALUATION batch size for {model_name}...")
+        eval_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='evaluation')
+
+        if eval_batch_size is None:
+            def model_builder_for_eval_size_check():
+                class MockTrial:
+                    def suggest_int(self, name, low, high, step=None): return high
+                    def suggest_float(self, name, low, high, log=False): return low
+                    def suggest_categorical(self, name, choices): return choices[0]
+                return _get_model_instance(MockTrial(), model_name, data, device, train_mask=regular_masks[0])
+
+            eval_batch_size = find_optimal_batch_size(
+                model_builder_for_eval_size_check, data, device, regular_masks[0],
+                num_neighbors=num_neighbors, dataset_name=dataset_name,
+                model_name=model_name, phase='evaluation'
+            )
+        print(f"  > Using EVALUATION batch size {eval_batch_size} for {model_name}")
+
+        # Tuning batch size
+        tuning_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='tuning') or 65536
+        if tuning_batch_size == 65536:
+            print(f"  > Using default TUNING batch size 65536 (no cached value found)")
+
+        train_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=tuning_batch_size, input_nodes=regular_masks[0])
+        val_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=eval_batch_size, input_nodes=regular_masks[1])
+        test_loader = NeighborLoader(data, num_neighbors=num_neighbors, batch_size=eval_batch_size, input_nodes=regular_masks[2])
+    else:
+        print(f"  > Using FULL BATCH for {model_name} on {dataset_name} (no NeighborLoader)")
+        
+        
+    detailed_metrics = []
     for i, seed in enumerate(seeds):
         set_seed(seed)
-        print(f"  > Run {i+1}/{n_runs} (Seed {seed})")
-    
-        fixed_trial = optuna.trial.FixedTrial(best_params)
-        model_instance = _get_model_instance(fixed_trial, model_name, data, device, train_mask=train_mask)
+        print(f" > Run {i+1}/{n_runs} (Seed {seed})")
         
-        y_true = data.y[test_mask].cpu().numpy()
+        fixed_trial = optuna.trial.FixedTrial(best_params)
+        model_instance = _get_model_instance(fixed_trial, model_name, data, device, train_mask=regular_masks[0])
+        
         y_pred, y_probs = None, None
         run_metrics = {}
         
-        if model_name in wrapper_models:
-            learning_rate = best_params.get('learning_rate', 0.01)
-            weight_decay = best_params.get('weight_decay', 5e-4)
-            gamma_focal = best_params.get('gamma_focal', 2.0)
-            patience = best_params.get('early_stop_patience', 20)
-            min_delta = best_params.get('early_stop_min_delta', 1e-3)
-            
-            criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
-            optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
-            
-            model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
-            model_wrapper.model.to(device)
-            
-            num_epochs = 50 if model_name == "MLP" else 150
-            
-            best_wts, _ = train_and_validate(model_wrapper, train_loader, val_loader, num_epochs, patience=patience, min_delta=min_delta, log_early_stop=False)
-            model_wrapper.model.load_state_dict(best_wts)
-            
-            _, test_metrics = model_wrapper.evaluate(test_loader)
-            
-            y_probs = test_metrics['probs'] 
-            y_pred = test_metrics['preds']
-            y_true = test_metrics['y_true'] 
-            run_metrics = test_metrics 
-            
-        elif model_name in sklearn_models:
-            model_instance.fit(sklearn_data['train_x'], sklearn_data['train_y'])
-            
-            try:
-                y_probs = model_instance.predict_proba(sklearn_data['test_x'])
-            except AttributeError:
-                # Optimisation: Fallback to scaled decision_function for SVM PR curves
-                if hasattr(model_instance, 'decision_function'):
-                    dfunc = model_instance.decision_function(sklearn_data['test_x'])
-                    y_probs = (dfunc - dfunc.min()) / (dfunc.max() - dfunc.min())
-                else:
-                    y_probs = None
-            
-            y_pred = model_instance.predict(sklearn_data['test_x'])
-            
-        if model_name not in wrapper_models:
-            if y_probs is not None:
-                run_metrics = calculate_metrics(y_true, y_pred, y_probs)
-            else:
-                from sklearn.metrics import accuracy_score, f1_score
-                run_metrics = {
-                    'accuracy': accuracy_score(y_true, y_pred),
-                    'precision': np.nan,
-                    'precision_illicit': np.nan,
-                    'recall': np.nan,
-                    'recall_illicit': np.nan,
-                    'f1': f1_score(y_true, y_pred, average='weighted'),
-                    'f1_illicit': f1_score(y_true, y_pred, pos_label=1, average='binary'),
-                    'roc_auc': np.nan,
-                    'PRAUC': np.nan,
-                    'kappa': np.nan,
-                }
         
-        if y_probs is not None:
-            # Optimisation: Handle dimension checking dynamically
-            y_probs_for_pr = y_probs[:, 1] if getattr(y_probs, 'ndim', 1) == 2 else y_probs
-            y_probs_tensor = torch.as_tensor(y_probs_for_pr, dtype=torch.float32)
-            y_true_tensor = torch.as_tensor(y_true, dtype=torch.long)
-            
-            precision, recall, thresholds = calculate_pr_metrics_batched(y_probs_tensor, y_true_tensor)
-            
-            pr_filename = f"results/{dataset_name}/pr_curves/{model_name}_run_{i+1}"
-            pr_auc = save_pr_artifacts(precision, recall, thresholds, pr_filename)
-            run_metrics['PRAUC'] = pr_auc
-            
-            pr_data = {
-                'precision': precision.numpy(),
-                'recall': recall.numpy(),
-                'thresholds': thresholds.numpy(),
-                'auc': pr_auc,
-                'y_true': y_true,
-                'y_probs': y_probs_for_pr
-            }
-            save_metrics_to_pickle(pr_data, f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_pr_data.pkl")
-        
-        run_metrics['model'] = model_name
-        run_metrics['run'] = i + 1
-        detailed_metrics.append(run_metrics)
-        
-        save_metrics_to_pickle(run_metrics, f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_metrics.pkl")
+    #I am here
         
     df = pd.DataFrame(detailed_metrics)
     
