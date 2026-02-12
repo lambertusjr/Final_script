@@ -144,12 +144,7 @@ class FocalLoss(nn.Module):
                 f"Alpha dimension ({len(self.alpha)}) must match number of classes ({num_classes})"
             )
             
-        # device_type = 'cuda' if logits.is_cuda else 'cpu'
-        with torch.amp.autocast('cuda', enabled=False):
-            ce_loss = F.cross_entropy(logits, targets, reduction='none')
-        pt = torch.exp(-ce_loss)  # prob of the true class
-        
-        # Use log_softmax for numerical stability
+        # Use log_softmax + nll_loss for numerical stability
         log_probs = F.log_softmax(logits, dim=-1)
         ce_loss = F.nll_loss(log_probs, targets, reduction='none')
         

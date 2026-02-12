@@ -15,9 +15,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from torch_geometric.loader import NeighborLoader
-from torch.optim import adam
 
-from torchmetrics.classification import BinaryF1Score
 
 DEFAULT_EARLY_STOP = {
     "patience": 20,
@@ -76,10 +74,12 @@ def hyperparameter_tuning(
                             def _optuna_progress_callback(study_inner, trial):
                                 trial_bar.update()
                             
-                            alpha_focal = balanced_class_weights(data.y.cpu().numpy())
+                            # Bug 19 fix: balanced_class_weights expects a tensor, not numpy array
+                            alpha_focal = balanced_class_weights(data.y)
+                            # Bug 13 fix: masks was missing from lambda — objective() requires it
                             study.optimize(
                                 lambda trial: run_trial_with_cleanup(
-                                    objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name),
+                                    objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks),
                                     n_trials=n_trials,
                                     callbacks=[_optuna_progress_callback]
                                 )
@@ -108,10 +108,11 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
     
     gamma_focal = trial.suggest_float('gamma_focal', 0.1, 5.0)
     train_mask = masks['train_mask']
-    # Use pre-calculated alpha_focal if provided, else calculate (fallback)
+    # Bug 15 fix: device must be defined before any conditional block that uses it
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    # Use pre-calculated alpha_focal if provided, else calculate (fallback)
     if alpha_focal is None:
-        device = data.y.device if data is not None else torch.device('cpu')
         alpha_focal = balanced_class_weights(data.y[train_mask]).to(device)
     
     # Validate alpha_focal has correct shape (should be [2] for binary classification)
@@ -140,30 +141,36 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
     else: # GNNs
         num_epochs = 400
         
+    # Bug 14 fix: train_and_validate expects a dict (calls .items()), not a list
     if dataset_name == "Elliptic":
-        elliptic_train_masks = [masks['train_mask'], masks['train_perf_eval_mask'], masks['val_mask'], masks['val_perf_eval_mask']]
+        train_val_masks = {
+            'train_mask': masks['train_mask'],
+            'train_perf_eval_mask': masks['train_perf_eval_mask'],
+            'val_mask': masks['val_mask'],
+            'val_perf_eval_mask': masks['val_perf_eval_mask'],
+        }
     else:
-        non_elliptic_train_mask = [masks['train_mask'], masks['val_mask']]
+        train_val_masks = {
+            'train_mask': masks['train_mask'],
+            'val_mask': masks['val_mask'],
+        }
     
     
     if model in wrapper_models:
         optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
         model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
         model_wrapper.model.to('cuda' if torch.cuda.is_available() else 'cpu')
-        if dataset_name == "Elliptic":
-            #Do not use neighbourloader for these datasets
-            
+        if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
+            # Bug 14 cont: pass train_val_masks dict instead of list
             best_f1_model_wts, best_f1 = train_and_validate(
-                model_wrapper, data, elliptic_train_masks, num_epochs, dataset_name, **trial_early_stop_args
-            )
-        elif dataset_name in ["AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
-            best_f1_model_wts, best_f1 = train_and_validate(
-                model_wrapper, data, non_elliptic_train_mask, num_epochs, dataset_name, **trial_early_stop_args
+                model_wrapper, data, train_val_masks, num_epochs, dataset_name, **trial_early_stop_args
             )
         else:
-            #These datasets requre neighbourloader due to memory constraints, so we use the training function that incorporates neighbourloader.
-            #best_f1_model_wts, best_f1 = train_and_validate_with_loader(
-            
+            # Bug 17 fix: fail loudly instead of silently returning None
+            raise NotImplementedError("NeighborLoader tuning not yet implemented")
+        # Bug 18 fix: return best_f1 so Optuna can use it
+        return best_f1
+
     elif model in sklearn_models:
         gpu_enabled_models = ['XGB']
         if model in gpu_enabled_models:
@@ -179,8 +186,9 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
         
         model_instance.fit(train_x, train_y)
         pred = model_instance.predict(val_x)
-        f1_metric = BinaryF1Score().to(pred.device)
-        f1_illicit = f1_metric(pred, val_y).item()
+        # Bug 16 fix: BinaryF1Score crashes on numpy arrays (no .device); use sklearn f1_score instead
+        f1_illicit = f1_score(val_y, pred, pos_label=1, average='binary')
         return float(f1_illicit)
-            
-        
+
+    else:
+        raise ValueError(f"Unknown model type: {model}")

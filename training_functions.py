@@ -21,10 +21,12 @@ def train_and_validate_with_loader(
     best_f1_model_wts = None
     
     for epoch in range(num_epochs):
-        train_loss, f1_illicit = model_wrapper.train_step(train_loader)
-    
-        
-        current_f1 = f1_illicit
+        # Bug 11 fix: method is train_step_loader, not train_step
+        train_loss, f1_illicit = model_wrapper.train_step_loader(train_loader)
+
+        # Bug 12 fix: validate on val_loader each epoch so early stopping uses val F1, not train F1
+        _, val_f1_illicit = model_wrapper.evaluate_loader_mini(val_loader)
+        current_f1 = val_f1_illicit
         
         improved = current_f1 > (best_f1 + min_delta)
         if improved:
@@ -73,8 +75,9 @@ def train_and_validate(
     masks = {k: v.to('cuda' if torch.cuda.is_available() else 'cpu') for k, v in masks.items()}
     #extracting masks into training and validation groups
     if dataset_name == "Elliptic":
-        elliptic_training_masks = [masks['train_mask'], masks['train_perf_mask']]
-        elliptic_validation_masks = [masks['val_mask'], masks['val_perf_mask']]
+        # Bug 10 fix: keys are 'train_perf_eval_mask'/'val_perf_eval_mask' (from utilities.py), not 'train_perf_mask'/'val_perf_mask'
+        elliptic_training_masks = [masks['train_mask'], masks['train_perf_eval_mask']]
+        elliptic_validation_masks = [masks['val_mask'], masks['val_perf_eval_mask']]
 
     for epoch in range(num_epochs):
         #Train step and evaluation step to determine best weights.
@@ -117,6 +120,4 @@ def update_best_weights(model, best_f1, current_f1, best_f1_model_wts=None):
         best_f1 = current_f1
         # Clone weights and ensure they stay on CPU to free GPU memory
         best_f1_model_wts = {k: v.cpu().clone().detach() for k, v in model.state_dict().items()}
-        # Explicitly delete old weights to prevent accumulation
-        old_wts = best_f1_model_wts
     return best_f1, best_f1_model_wts

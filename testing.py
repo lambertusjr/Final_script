@@ -98,7 +98,8 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
 
     # ── 3. Class weights for focal loss ──────────────────────────────────
     if sklearn_data is not None:
-        alpha_focal = balanced_class_weights(sklearn_data['train_y'])
+        # sklearn_data['train_y'] may be numpy (SVM/RF); balanced_class_weights expects a tensor
+        alpha_focal = balanced_class_weights(torch.as_tensor(sklearn_data['train_y'], dtype=torch.long))
     else:
         alpha_focal = balanced_class_weights(data.y[train_mask])
     alpha_focal = alpha_focal.to(device)

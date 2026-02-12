@@ -516,3 +516,4 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
         save_batch_size_by_phase(dataset_name, model_name, optimal, phase=phase)
     
     return optimal
+
