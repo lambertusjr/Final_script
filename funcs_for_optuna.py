@@ -1,4 +1,5 @@
 import optuna
+import traceback
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -88,9 +89,10 @@ def hyperparameter_tuning(
 
             except Exception as e:
                 print(f"\n{'!'*80}")
-                print(f"✗ ERROR processing dataset {dataset_name}:")
+                print(f"✗ ERROR processing model {model_name} on {dataset_name}:")
                 print(f"  {type(e).__name__}: {str(e)}")
-                print(f"  Continuing to next dataset...")
+                traceback.print_exc()
+                print(f"  Continuing to next model...")
                 print(f"{'!'*80}\n")
                 
                 # Clean up GPU memory even on error

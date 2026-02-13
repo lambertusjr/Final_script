@@ -1,4 +1,5 @@
 import os
+import traceback
 from dependencies import *
 from utilities import *
 from helper_functions import check_study_existence
@@ -32,27 +33,27 @@ for idx, dataset in enumerate(datasets, 1):
             match dataset:
                 case "Elliptic":
                     from pre_processing import EllipticDataset
-                    data = EllipticDataset(root='/Users/Lambe/Desktop/Datasets/Elliptic_dataset')[0]
+                    data = EllipticDataset(root='Datasets/Elliptic_dataset')[0]
                     dataset = "Elliptic"
                 case "IBM_AML_HiSmall":
                     from pre_processing import IBMAMLDataset_HiSmall
-                    data = IBMAMLDataset_HiSmall(root='/Users/Lambe/Desktop/Datasets/IBM_AML_dataset/HiSmall')[0]
+                    data = IBMAMLDataset_HiSmall(root='Datasets/IBM_AML_dataset/HiSmall')[0]
                     dataset = "IBM_AML_HiSmall"
                 case "IBM_AML_LiSmall":
                     from pre_processing import IBMAMLDataset_LiSmall
-                    data = IBMAMLDataset_LiSmall(root='/Users/Lambe/Desktop/Datasets/IBM_AML_dataset/LiSmall')[0]
+                    data = IBMAMLDataset_LiSmall(root='Datasets/IBM_AML_dataset/LiSmall')[0]
                     dataset = "IBM_AML_LiSmall"
                 case "IBM_AML_HiMedium":
                     from pre_processing import IBMAMLDataset_HiMedium
-                    data = IBMAMLDataset_HiMedium(root='/Users/Lambe/Desktop/Datasets/IBM_AML_dataset/HiMedium')[0]
+                    data = IBMAMLDataset_HiMedium(root='Datasets/IBM_AML_dataset/HiMedium')[0]
                     dataset = "IBM_AML_HiMedium"
                 case "IBM_AML_LiMedium":
                     from pre_processing import IBMAMLDataset_LiMedium
-                    data = IBMAMLDataset_LiMedium(root='/Users/Lambe/Desktop/Datasets/IBM_AML_dataset/LiMedium')[0]
+                    data = IBMAMLDataset_LiMedium(root='Datasets/IBM_AML_dataset/LiMedium')[0]
                     dataset = "IBM_AML_LiMedium"
                 case "AMLSim":
                     from pre_processing import AMLSimDataset
-                    data = AMLSimDataset(root='/Users/Lambe/Desktop/Datasets/AMLSim_dataset')[0]
+                    data = AMLSimDataset(root='Datasets/AMLSim_dataset')[0]
                     dataset = "AMLSim"
             print(f"Dataset {dataset} loaded successfully for hyperparameter tuning.")
 
@@ -90,6 +91,7 @@ for idx, dataset in enumerate(datasets, 1):
             print(f"\n{'!'*80}")
             print(f"✗ ERROR processing dataset {dataset}:")
             print(f"  {type(e).__name__}: {str(e)}")
+            traceback.print_exc()
             print(f"  Continuing to next dataset...")
             print(f"{'!'*80}\n")
             
