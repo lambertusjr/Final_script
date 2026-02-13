@@ -110,11 +110,11 @@ class ModelWrapper:
         data = data.to(device)
         self.optimiser.zero_grad()
         train_mask = mask.to(device)
-        out = self.model(data[train_mask])
+        out = self.model(data)
 
-        out_sliced = out
+        out_sliced = out[train_mask]
         y_sliced = data.y[train_mask]
-        
+
         # # Validate labels before computing loss
         # num_classes = out_sliced.shape[-1]
         # if y_sliced.min() < 0 or y_sliced.max() >= num_classes:
@@ -136,7 +136,8 @@ class ModelWrapper:
         eval_mask = masks.to(device)
         with torch.no_grad():
             data = data.to(device)
-            out_sliced = self.model(data[eval_mask])
+            out = self.model(data)
+            out_sliced = out[eval_mask]
             y_sliced = data.y[eval_mask]
 
             loss = self.criterion(out_sliced, y_sliced)
@@ -157,9 +158,9 @@ class ModelWrapper:
         with torch.no_grad():
             data = data.to(device)
             val_mask = mask.to(device)
-            out = self.model(data[val_mask])
+            out = self.model(data)
 
-            out_sliced = out
+            out_sliced = out[val_mask]
             y_sliced = data.y[val_mask]
             
             loss = self.criterion(out_sliced, y_sliced)
@@ -185,16 +186,14 @@ class ModelWrapper:
         data = data.to(device)
         self.optimiser.zero_grad()
         
-        train_mask = mask[0].to(device)
-        out = self.model(data[train_mask])
+        #train_mask = mask[0].to(device)
+        out = self.model(data)
 
-        out_sliced = out
-        y_sliced = data.y[train_mask]
 
         #Extracting performance masks and applying to out and y to compute loss and metrics only on the known nodes of the known nodes subset of the training set.
         train_perf_eval_mask = mask[1].to(device)
-        out_sliced = out_sliced[train_perf_eval_mask]
-        y_sliced = y_sliced[train_perf_eval_mask]
+        out_sliced = out[train_perf_eval_mask]
+        y_sliced = data.y[train_perf_eval_mask]
         
         loss = self.criterion(out_sliced, y_sliced)
         loss.backward()
@@ -208,7 +207,8 @@ class ModelWrapper:
         eval_mask = masks[0].to(device)
         with torch.no_grad():
             data = data.to(device)
-            out_sliced = self.model(data[eval_mask])
+            out = self.model(data)
+            out_sliced = out[eval_mask]
             y_sliced = data.y[eval_mask]
 
             #Applying performance evaluation mask since we can only predict on known nodes.
@@ -241,7 +241,8 @@ class ModelWrapper:
         eval_mask = masks[0].to(device)
         with torch.no_grad():
             data = data.to(device)
-            out_sliced = self.model(data[eval_mask])
+            out = self.model(data)
+            out_sliced = out[eval_mask]
             y_sliced = data.y[eval_mask]
 
             perf_eval_mask = masks[1].to(device)

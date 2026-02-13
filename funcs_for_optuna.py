@@ -1,5 +1,4 @@
 import optuna
-import traceback
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -59,47 +58,32 @@ def hyperparameter_tuning(
             continue
         else:
             print(f"Starting optimization for {model_name} on {dataset_name} with {n_trials} trials.")
-            try:
-                if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
-                    #Do not use neighbourloader for these datasets
-                    if check_study_existence(model_name, dataset_name): 
-                        study = optuna.load_study(study_name=study_name, storage=db_path)
-                    else:
-                        study = optuna.create_study(
-                            direction='maximize',
-                            study_name=study_name,
-                            storage=db_path,
-                            load_if_exists=True
-                        )
-                        with tqdm(total=n_trials, desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
-                            def _optuna_progress_callback(study_inner, trial):
-                                trial_bar.update()
-                            
-                            # Bug 19 fix: balanced_class_weights expects a tensor, not numpy array
-                            alpha_focal = balanced_class_weights(data.y)
-                            # Bug 13 fix: masks was missing from lambda — objective() requires it
-                            study.optimize(
-                                lambda trial: run_trial_with_cleanup(
-                                    objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks),
-                                    n_trials=n_trials,
-                                    callbacks=[_optuna_progress_callback]
-                                )
-                    model_parameters[model_name].append(study.best_params)
-                    print(f"Best F1-illicit for {model_name} on {dataset_name}: {study.best_value:.4f}")
+            if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
+                #Do not use neighbourloader for these datasets
+                if check_study_existence(model_name, dataset_name):
+                    study = optuna.load_study(study_name=study_name, storage=db_path)
+                else:
+                    study = optuna.create_study(
+                        direction='maximize',
+                        study_name=study_name,
+                        storage=db_path,
+                        load_if_exists=True
+                    )
+                    with tqdm(total=n_trials, desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
+                        def _optuna_progress_callback(study_inner, trial):
+                            trial_bar.update()
 
-            except Exception as e:
-                print(f"\n{'!'*80}")
-                print(f"✗ ERROR processing model {model_name} on {dataset_name}:")
-                print(f"  {type(e).__name__}: {str(e)}")
-                traceback.print_exc()
-                print(f"  Continuing to next model...")
-                print(f"{'!'*80}\n")
-                
-                # Clean up GPU memory even on error
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                
-                continue
+                        # Bug 19 fix: balanced_class_weights expects a tensor, not numpy array
+                        alpha_focal = balanced_class_weights(data.y)
+                        # Bug 13 fix: masks was missing from lambda — objective() requires it
+                        study.optimize(
+                            lambda trial: run_trial_with_cleanup(
+                                objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks),
+                                n_trials=n_trials,
+                                callbacks=[_optuna_progress_callback]
+                            )
+                model_parameters[model_name].append(study.best_params)
+                print(f"Best F1-illicit for {model_name} on {dataset_name}: {study.best_value:.4f}")
 
     return model_parameters
 
