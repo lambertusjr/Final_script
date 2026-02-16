@@ -283,7 +283,8 @@ def check_study_existence(model_name, data_for_optimization):
         True if a study exists with >= 50 trials, False otherwise.
     """
     study_name = f'{model_name}_optimization on {data_for_optimization} dataset'
-    storage_url = f'sqlite:///optimization_results_on_{data_for_optimization}.db'
+    storage_url = f'sqlite:///optimization_results_on_{data_for_optimization}_{model_name}.db'
+
     
     try:
         # 1. Attempt to load the study

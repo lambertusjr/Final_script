@@ -55,7 +55,7 @@ def hyperparameter_tuning(
         else:
             n_trials = 50
         study_name = f'{model_name}_optimization on {dataset_name} dataset'
-        db_path = f'sqlite:///optimization_results_on_{dataset_name}.db'
+        db_path = f'sqlite:///optimization_results_on_{dataset_name}_{model_name}.db'
         if check_study_existence(model_name, dataset_name):
             print(f"Study for {model_name} on {dataset_name} already exists. Skipping optimization.")
             continue

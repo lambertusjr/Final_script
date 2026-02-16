@@ -50,7 +50,6 @@ for idx, dataset in enumerate(datasets, 1):
     print(f"{'='*80}\n")
 
     #Check if there is a missing study in the database
-    db_path = f'sqlite:///optimization_results_on_{dataset}.db'
     if all(check_study_existence(model, dataset) for model in models):
         print(f"All studies for {dataset} are complete. Skipping to next dataset.")
         continue
