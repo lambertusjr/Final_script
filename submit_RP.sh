@@ -62,7 +62,7 @@ python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(
 if [[ -f main.py ]]; then
   echo "Starting Worker 0 on GPU 0 (LiMedium)"
   # Run in background with & and redirect output
-  python -u main.py IBM_AML_LiMedium GCN
+  python -u main.py AMLSim GCN
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
 fi
