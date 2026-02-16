@@ -24,11 +24,8 @@ cd ${TMP}
 cleanup() {
   echo "Copying results back to ${PBS_O_WORKDIR}/ (cleanup)"
   if /usr/bin/rsync -vax --progress \
-    --include '/csv_results/***' \
-    --include '/optimization_results_*.db' \
-    --include '/output.out' \
-    --include '/worker*.log' \
-    --exclude '*' \
+    --include 'results/***' \
+    --exclude 'Datasets' \
     "${TMP}/" "${PBS_O_WORKDIR}/"; then
     /bin/rm -rf "${TMP}"
   fi
