@@ -413,7 +413,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
         max_memory_limit = None
     
     low = 32768  # Start higher for better GPU utilization
-    high = 300000000 # Increase upper bound
+    high = 30000000000 # Increase upper bound
     optimal = 65536 # Higher safe default
     
     # Define a simple training loop for testing
