@@ -219,8 +219,8 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
             colsample_bytree=colsample_bytree,
             gamma=Gamma_XGB,
             subsample=subsample,
-            tree_method='hist',  # Required for GPU acceleration
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            tree_method='hist',
+            device="cpu"
         )
 
     elif model == 'RF':

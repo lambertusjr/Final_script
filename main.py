@@ -12,8 +12,35 @@ else:
     seed = np.random.SeedSequence().generate_state(1)[0]
     set_seed(seed)
 #%% Hyperparameter tuning
-datasets = ["Elliptic"]
-models = ["GCN", "GAT", "GIN", "MLP", "SVM", "XGB", "RF"]
+
+#Checking whether the code is running on the HPC or on my windows pc
+import platform
+if platform.system() == 'Linux':
+    # Store all paths when running linux in a variable to be accessed later
+    dataset_paths = {
+        "Elliptic": 'Datasets/Elliptic_dataset',
+        "IBM_AML_HiSmall": 'Datasets/IBM_AML_dataset/HiSmall',
+        "IBM_AML_LiSmall": 'Datasets/IBM_AML_dataset/LiSmall',
+        "IBM_AML_HiMedium": 'Datasets/IBM_AML_dataset/HiMedium',
+        "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
+        "AMLSim": 'Datasets/AMLSim_dataset'
+    }
+    import sys
+    datasets = [sys.argv[1]] #Getting dataset variable from submit.sh script
+    models = [sys.argv[2]] #Getting model variable from submit.sh script
+    
+else:
+    dataset_paths = {
+        "Elliptic": 'Datasets/Elliptic_dataset',
+        "IBM_AML_HiSmall": 'Datasets/IBM_AML_dataset/HiSmall',
+        "IBM_AML_LiSmall": 'Datasets/IBM_AML_dataset/LiSmall',
+        "IBM_AML_HiMedium": 'Datasets/IBM_AML_dataset/HiMedium',
+        "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
+        "AMLSim": 'Datasets/AMLSim_dataset'
+    }
+    datasets = ["Elliptic"]
+    models = ["GCN", "GAT", "GIN", "MLP", "SVM", "XGB", "RF"]
+
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
 

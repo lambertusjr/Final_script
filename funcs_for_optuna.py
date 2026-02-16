@@ -158,7 +158,7 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
         return best_f1
 
     elif model in sklearn_models:
-        gpu_enabled_models = ['XGB']
+        gpu_enabled_models = []
         if dataset_name == "Elliptic":
             train_mask = masks['train_perf_eval_mask']
             val_mask = masks['val_perf_eval_mask']
