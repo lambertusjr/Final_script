@@ -1,4 +1,5 @@
 import os
+import gc
 from dependencies import *
 from utilities import *
 from helper_functions import check_study_existence
@@ -40,8 +41,8 @@ else:
         "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
-    datasets = ["IBM_AML_HiMedium"]
-    models = ["GCN", "GAT", "GIN", "MLP", "SVM", "XGB", "RF"]
+    datasets = ["IBM_AML_HiSmall"]
+    models = ["GCN"]
 
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
@@ -109,7 +110,12 @@ for idx, dataset in enumerate(datasets, 1):
             masks=masks
         )
 
-        # Clean up GPU memory between datasets
+        # Clean up tuning artifacts before evaluation
+        del data, masks, model_parameters
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f"GPU memory cleared after {dataset}")
