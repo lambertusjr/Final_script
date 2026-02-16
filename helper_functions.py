@@ -453,8 +453,10 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 if steps >= 10: # Test 10 batches for more accurate memory profile
                     break
             
-            del model, optimizer, criterion, loader, batch, out, out_sliced, loss
-            if device == 'cuda':
+            del model, optimizer, criterion, loader
+            if steps > 0:
+                del batch, out, out_sliced, loss
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return True
             
@@ -462,17 +464,17 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
             error_msg = str(e).lower()
             if "out of memory" in error_msg or "cuda" in error_msg:
                 print(f"Batch size {batch_size} failed with GPU error: {type(e).__name__}")
-                if device == 'cuda':
+                if torch.cuda.is_available():
                      torch.cuda.empty_cache()
                 return False
             else:
                 print(f"Batch size {batch_size} failed with RuntimeError: {e}")
-                if device == 'cuda':
+                if torch.cuda.is_available():
                      torch.cuda.empty_cache()
                 return False
         except Exception as e:
             print(f"Batch size {batch_size} failed with error: {type(e).__name__}: {e}")
-            if device == 'cuda':
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return False
 

@@ -4,18 +4,12 @@ import gc
 def train_and_validate_with_loader(
     model_wrapper,
     train_loader, # Updated to accept loaders
-    val_loader,   
+    val_loader,
     num_epochs,
     patience=None,
     min_delta=0.0,
     log_early_stop=False
 ):
-    metrics = {
-        'accuracy': [], 'precision_weighted': [], 'precision_illicit': [],
-        'recall': [], 'recall_illicit': [], 'f1': [], 'f1_illicit': [],
-        'roc_auc': [], 'PRAUC': [], 'kappa': [] 
-    }
-    
     best_f1 = -1
     epochs_without_improvement = 0
     best_f1_model_wts = None
@@ -53,21 +47,15 @@ def train_and_validate_with_loader(
 def train_and_validate(
     model_wrapper,
     data,
-    masks,   
+    masks,
     num_epochs,
     dataset_name,
     patience=None,
     min_delta=0.0,
     log_early_stop=False
 ):
-    metrics = {
-        'accuracy': [], 'precision_weighted': [], 'precision_illicit': [],
-        'recall': [], 'recall_illicit': [], 'f1': [], 'f1_illicit': [],
-        'roc_auc': [], 'PRAUC': [], 'kappa': [] 
-    }
-    
     #List for which datasets can run on full batching loop without running out of memory. For these datasets, we will not use neighbourloader and will train on the full graph.
-    full_batch_datasets = ["AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"] #Elliptic is also included but uses a different training loop.
+    full_batch_datasets = ["IBM_AML_HiSmall", "IBM_AML_LiSmall"] #Elliptic is also included but uses a different training loop.
     
     best_f1 = -1
     epochs_without_improvement = 0

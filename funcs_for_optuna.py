@@ -46,6 +46,9 @@ def hyperparameter_tuning(
     wrapper_models = ['MLP', 'GCN', 'GAT', 'GIN']
     sklearn_models = ['SVM', 'XGB', 'RF']
 
+    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    num_neighbors = [10, 10]
+
     for model_name in tqdm(models, desc="Models", unit="model"):
         if model_name in wrapper_models:
             n_trials = 100
@@ -56,38 +59,50 @@ def hyperparameter_tuning(
         if check_study_existence(model_name, dataset_name):
             print(f"Study for {model_name} on {dataset_name} already exists. Skipping optimization.")
             continue
-        else:
-            print(f"Starting optimization for {model_name} on {dataset_name} with {n_trials} trials.")
-            if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
-                #Do not use neighbourloader for these datasets
-                if check_study_existence(model_name, dataset_name):
-                    study = optuna.load_study(study_name=study_name, storage=db_path)
-                else:
-                    study = optuna.create_study(
-                        direction='maximize',
-                        study_name=study_name,
-                        storage=db_path,
-                        load_if_exists=True
-                    )
-                    with tqdm(total=n_trials, desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
-                        def _optuna_progress_callback(study_inner, trial):
-                            trial_bar.update()
 
-                        # Bug 19 fix: balanced_class_weights expects a tensor, not numpy array
-                        alpha_focal = balanced_class_weights(data.y)
-                        # Bug 13 fix: masks was missing from lambda — objective() requires it
-                        study.optimize(
-                            lambda trial: run_trial_with_cleanup(
-                                objective, model_name, trial, model_name, data, alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks),
-                                n_trials=n_trials,
-                                callbacks=[_optuna_progress_callback]
-                            )
-                model_parameters[model_name].append(study.best_params)
-                print(f"Best F1-illicit for {model_name} on {dataset_name}: {study.best_value:.4f}")
+        print(f"Starting optimization for {model_name} on {dataset_name} with {n_trials} trials.")
+
+        # Find optimal batch size for NeighborLoader datasets with wrapper models
+        batch_size = None
+        if dataset_name in loader_datasets and model_name in wrapper_models:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            def _model_builder():
+                class MockTrial:
+                    def suggest_int(self, name, low, high, step=None): return high
+                    def suggest_float(self, name, low, high, log=False): return low
+                    def suggest_categorical(self, name, choices): return choices[0]
+                return _get_model_instance(MockTrial(), model_name, data, device)
+            batch_size = find_optimal_batch_size(
+                _model_builder, data, device, masks['train_mask'],
+                num_neighbors=num_neighbors, dataset_name=dataset_name,
+                model_name=model_name, phase='tuning'
+            )
+
+        study = optuna.create_study(
+            direction='maximize',
+            study_name=study_name,
+            storage=db_path,
+            load_if_exists=True
+        )
+        alpha_focal = balanced_class_weights(data.y)
+        with tqdm(total=n_trials, desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
+            def _optuna_progress_callback(study_inner, trial):
+                trial_bar.update()
+
+            study.optimize(
+                lambda trial: run_trial_with_cleanup(
+                    objective, model_name, trial, model_name, data,
+                    alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks,
+                    batch_size=batch_size, num_neighbors=num_neighbors),
+                n_trials=n_trials,
+                callbacks=[_optuna_progress_callback]
+            )
+        model_parameters[model_name].append(study.best_params)
+        print(f"Best F1-illicit for {model_name} on {dataset_name}: {study.best_value:.4f}")
 
     return model_parameters
 
-def objective(trial, model, data, alpha_focal, dataset_name, masks):
+def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=None, num_neighbors=[10, 10]):
     # Get model instance with trial-suggested hyperparameters
     learning_rate = trial.suggest_float('learning_rate', 0.005, 0.05, log=False)
     weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
@@ -142,19 +157,29 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
         }
     
     
+    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    full_batch_datasets = {"Elliptic", "IBM_AML_HiSmall", "IBM_AML_LiSmall"}
+
     if model in wrapper_models:
         optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
         model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
-        model_wrapper.model.to('cuda' if torch.cuda.is_available() else 'cpu')
-        if dataset_name in ["Elliptic", "AMLSim", "IBM_AML_HiSmall", "IBM_AML_LiSmall"]:
-            # Bug 14 cont: pass train_val_masks dict instead of list
+        model_wrapper.model.to(device)
+
+        if dataset_name in loader_datasets and batch_size is not None:
+            train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
+                                          batch_size=batch_size, input_nodes=train_mask)
+            val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
+                                        batch_size=batch_size, input_nodes=masks['val_mask'])
+            best_f1_model_wts, best_f1 = train_and_validate_with_loader(
+                model_wrapper, train_loader, val_loader, num_epochs, **trial_early_stop_args
+            )
+        elif dataset_name in full_batch_datasets:
             best_f1_model_wts, best_f1 = train_and_validate(
                 model_wrapper, data, train_val_masks, num_epochs, dataset_name, **trial_early_stop_args
             )
         else:
-            # Bug 17 fix: fail loudly instead of silently returning None
-            raise NotImplementedError("NeighborLoader tuning not yet implemented")
-        # Bug 18 fix: return best_f1 so Optuna can use it
+            raise ValueError(f"Unsupported dataset for wrapper model tuning: {dataset_name}")
+
         return best_f1
 
     elif model in sklearn_models:

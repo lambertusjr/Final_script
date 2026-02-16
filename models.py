@@ -20,7 +20,7 @@ class ModelWrapper:
         self.model.train()
         total_loss = 0
         device = next(self.model.parameters()).device
-        all_preds, all_probs, all_labels = [], [], []
+        all_preds, all_labels = [], []
         for batch in loader:
             batch = batch.to(device)
             self.optimiser.zero_grad()

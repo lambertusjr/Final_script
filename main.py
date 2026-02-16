@@ -86,13 +86,18 @@ for idx, dataset in enumerate(datasets, 1):
         print(f"Masks extracted and removed from data variable")
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
 
         #Starting optimisation
         print(f"Starting hyperparameter optimization for {dataset} dataset...")
 
-        # Move data to device
-        data = data.to(device)
-        print(f"Data moved to device: {device}")
+        # Move data to device only for full-batch datasets; NeighborLoader datasets
+        # stay on CPU so the full graph doesn't consume GPU memory
+        if dataset not in loader_datasets:
+            data = data.to(device)
+            print(f"Data moved to device: {device}")
+        else:
+            print(f"Data kept on CPU for NeighborLoader-based training ({dataset})")
 
         print(f"Starting hyperparameter optimization for {dataset} dataset...")
 

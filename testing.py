@@ -67,7 +67,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     wrapper_models  = {'MLP', 'GCN', 'GAT', 'GIN'}
     sklearn_models  = {'SVM', 'RF', 'XGB'}
     gpu_sklearn_models = {}
-    batch_loader_datasets = {"IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    batch_loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
 
     # ── 1. Validate masks vs data ────────────────────────────────────────
     # masks is a dict from extract_and_remove_masks:
@@ -111,30 +111,35 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     if use_loader:
         num_neighbors = [10, 10]
 
+        def _model_builder():
+            class MockTrial:
+                def suggest_int(self, name, low, high, step=None): return high
+                def suggest_float(self, name, low, high, log=False): return low
+                def suggest_categorical(self, name, choices): return choices[0]
+            return _get_model_instance(MockTrial(), model_name, data, device,
+                                       train_mask=train_mask)
+
         # --- Evaluation batch size ---
         print(f"Finding optimal EVALUATION batch size for {model_name}...")
         eval_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='evaluation')
-
         if eval_batch_size is None:
-            def model_builder_for_eval_size_check():
-                class MockTrial:
-                    def suggest_int(self, name, low, high, step=None): return high
-                    def suggest_float(self, name, low, high, log=False): return low
-                    def suggest_categorical(self, name, choices): return choices[0]
-                return _get_model_instance(MockTrial(), model_name, data, device,
-                                           train_mask=train_mask)
-
             eval_batch_size = find_optimal_batch_size(
-                model_builder_for_eval_size_check, data, device, train_mask,
+                _model_builder, data, device, train_mask,
                 num_neighbors=num_neighbors, dataset_name=dataset_name,
                 model_name=model_name, phase='evaluation'
             )
         print(f"  > Using EVALUATION batch size {eval_batch_size} for {model_name}")
 
-        # --- Tuning batch size ---
-        tuning_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='tuning') or 65536
-        if tuning_batch_size == 65536:
-            print(f"  > Using default TUNING batch size 65536 (no cached value found)")
+        # --- Training batch size ---
+        tuning_batch_size = load_batch_size_by_phase(dataset_name, model_name, phase='tuning')
+        if tuning_batch_size is None:
+            print(f"Finding optimal TUNING batch size for {model_name}...")
+            tuning_batch_size = find_optimal_batch_size(
+                _model_builder, data, device, train_mask,
+                num_neighbors=num_neighbors, dataset_name=dataset_name,
+                model_name=model_name, phase='tuning'
+            )
+        print(f"  > Using TUNING batch size {tuning_batch_size} for {model_name}")
 
         train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                       batch_size=tuning_batch_size, input_nodes=train_mask)
