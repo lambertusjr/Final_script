@@ -67,7 +67,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     wrapper_models  = {'MLP', 'GCN', 'GAT', 'GIN'}
     sklearn_models  = {'SVM', 'RF', 'XGB'}
     gpu_sklearn_models = {}
-    batch_loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    batch_loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader
 
     # ── 1. Validate masks vs data ────────────────────────────────────────
     # masks is a dict from extract_and_remove_masks:

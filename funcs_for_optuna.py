@@ -46,7 +46,7 @@ def hyperparameter_tuning(
     wrapper_models = ['MLP', 'GCN', 'GAT', 'GIN']
     sklearn_models = ['SVM', 'XGB', 'RF']
 
-    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
     num_neighbors = [10, 10]
 
     for model_name in tqdm(models, desc="Models", unit="model"):
@@ -157,8 +157,8 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         }
     
     
-    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
-    full_batch_datasets = {"Elliptic", "IBM_AML_HiSmall", "IBM_AML_LiSmall"}
+    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
+    full_batch_datasets = {"Elliptic"}
 
     if model in wrapper_models:
         optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)

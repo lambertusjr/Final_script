@@ -41,8 +41,8 @@ else:
         "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
-    datasets = ["Elliptic"]
-    models = ["GCN"]
+    datasets = ["IBM_AML_HiSmall"]
+    models = ["GCN", "SVM", "XGB", "RF", "MLP", "GAT", "GIN"]
 
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
@@ -88,7 +88,7 @@ for idx, dataset in enumerate(datasets, 1):
         print(f"Masks extracted and removed from data variable")
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+        loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
 
         #Starting optimisation
         print(f"Starting hyperparameter optimization for {dataset} dataset...")
@@ -178,7 +178,7 @@ for idx, dataset in enumerate(datasets, 1):
     data, masks = extract_and_remove_masks(data)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium"}
+    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for evaluation, so all datasets except Elliptic are in this set.
 
     if dataset not in loader_datasets:
         data = data.to(device)
