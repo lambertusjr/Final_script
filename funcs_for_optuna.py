@@ -159,17 +159,24 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
 
     elif model in sklearn_models:
         gpu_enabled_models = ['XGB']
-        if model in gpu_enabled_models:
-            train_x = data.x[masks['train_mask']]
-            train_y = data.y[masks['train_mask']] 
-            val_x = data.x[masks['val_mask']]
-            val_y = data.y[masks['val_mask']]
+        if dataset_name == "Elliptic":
+            train_mask = masks['train_perf_eval_mask']
+            val_mask = masks['val_perf_eval_mask']
         else:
-            train_x = data.x[masks['train_mask']].cpu().numpy()
-            train_y = data.y[masks['train_mask']].cpu().numpy() 
-            val_x = data.x[masks['val_mask']].cpu().numpy()
-            val_y = data.y[masks['val_mask']].cpu().numpy()
-        
+            train_mask = masks['train_mask']
+            val_mask = masks['val_mask']
+
+        if model in gpu_enabled_models:
+            train_x = data.x[train_mask]
+            train_y = data.y[train_mask]
+            val_x = data.x[val_mask]
+            val_y = data.y[val_mask]
+        else:
+            train_x = data.x[train_mask].cpu().numpy()
+            train_y = data.y[train_mask].cpu().numpy()
+            val_x = data.x[val_mask].cpu().numpy()
+            val_y = data.y[val_mask].cpu().numpy()
+
         model_instance.fit(train_x, train_y)
         pred = model_instance.predict(val_x)
         # Bug 16 fix: BinaryF1Score crashes on numpy arrays (no .device); use sklearn f1_score instead
@@ -178,3 +185,4 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks):
 
     else:
         raise ValueError(f"Unknown model type: {model}")
+    

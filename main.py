@@ -13,7 +13,7 @@ else:
     set_seed(seed)
 #%% Hyperparameter tuning
 datasets = ["Elliptic"]
-models = ["GCN", "GAT"]
+models = ["GCN", "GAT", "GIN", "MLP", "SVM", "XGB", "RF"]
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
 
