@@ -1,6 +1,6 @@
 #!/bin/bash
-#PBS -N Fraud_GNN_IBM_Medium
-#PBS -l select=1:ncpus=4:mem=64GB:ngpus=1:Qlist=ee:host=comp056
+#PBS -N IBM_LM_GCN
+#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056
 #PBS -q ee
 #PBS -l walltime=200:00:00
 #PBS -j oe
@@ -23,14 +23,15 @@ cd ${TMP}
 
 cleanup() {
   echo "Copying results back to ${PBS_O_WORKDIR}/ (cleanup)"
-  /usr/bin/rsync -vax --progress \
+  if /usr/bin/rsync -vax --progress \
     --include '/csv_results/***' \
-    --include '/optimization_results.db' \
+    --include '/optimization_results_*.db' \
     --include '/output.out' \
     --include '/worker*.log' \
     --exclude '*' \
-    "${TMP}/" "${PBS_O_WORKDIR}/" || true
-  [ "$?" -eq 0 ] && /bin/rm -rf "${TMP}"
+    "${TMP}/" "${PBS_O_WORKDIR}/"; then
+    /bin/rm -rf "${TMP}"
+  fi
 }
 trap cleanup EXIT
 
@@ -49,9 +50,9 @@ source "${TMP}/RP_env/bin/activate"
 command -v conda-unpack >/dev/null 2>&1 && conda-unpack || true
 set -u
 
-# threads consistent with ncpus=8
-export OMP_NUM_THREADS=8
-export MKL_NUM_THREADS=8
+# threads consistent with ncpus=4
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
 export QT_QPA_PLATFORM=offscreen
 export MPLCONFIGDIR="${TMP}/.mpl"
 mkdir -p "${MPLCONFIGDIR}"
@@ -62,9 +63,6 @@ if [[ -f main.py ]]; then
   echo "Starting Worker 0 on GPU 0 (LiMedium)"
   # Run in background with & and redirect output
   python -u main.py IBM_AML_LiMedium GCN
-  
-  # Wait for all background jobs to finish before cleanup
-  wait
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
 fi

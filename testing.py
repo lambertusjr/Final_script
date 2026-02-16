@@ -65,8 +65,8 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     # ── 0. Constants & device ────────────────────────────────────────────
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     wrapper_models  = {'MLP', 'GCN', 'GAT', 'GIN'}
-    sklearn_models  = {'SVM', 'RF'}
-    gpu_sklearn_models = {'XGB'}
+    sklearn_models  = {'SVM', 'RF', 'XGB'}
+    gpu_sklearn_models = {}
     batch_loader_datasets = {"IBM_AML_HiMedium", "IBM_AML_LiMedium"}
 
     # ── 1. Validate masks vs data ────────────────────────────────────────
@@ -155,9 +155,9 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             #                           masks['val_mask'],   masks['val_perf_mask']
             training_masks_dict = {
                 'train_mask':      masks['train_mask'],
-                'train_perf_mask': masks['train_perf_eval_mask'],
+                'train_perf_eval_mask': masks['train_perf_eval_mask'],
                 'val_mask':        masks['val_mask'],
-                'val_perf_mask':   masks['val_perf_eval_mask'],
+                'val_perf_eval_mask':   masks['val_perf_eval_mask'],
             }
         else:
             training_masks_dict = {
