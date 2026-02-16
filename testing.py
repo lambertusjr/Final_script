@@ -343,13 +343,26 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             run_metrics,
             f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_metrics.pkl"
         )
+        # CREATE A LIGHTWEIGHT COPY for the DataFrame
+        # Remove heavy tensors (probs, preds, y_true) before appending to the list
+        lightweight_metrics = run_metrics.copy()
+        keys_to_remove = ['probs', 'preds', 'y_true']
+        for key in keys_to_remove:
+            if key in lightweight_metrics:
+                del lightweight_metrics[key]
+        
+        detailed_metrics.append(lightweight_metrics)
 
         # ── 10. Per-run cleanup ──────────────────────────────────────────
         del model_instance, y_pred, y_probs, run_metrics
         if model_name in wrapper_models:
-            del model_wrapper, best_wts
+            del model_wrapper, best_wts, optimiser, criterion
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+        gc.collect()
         gc.collect()
 
     # ══════════════════════════════════════════════════════════════════════

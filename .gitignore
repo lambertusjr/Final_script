@@ -1,11 +1,7 @@
 Datasets/._.DS_Store
 Datasets/
-__pycache__/dependencies.cpython-310.pyc
-__pycache__/funcs_for_optuna.cpython-310.pyc
-__pycache__/helper_functions.cpython-310.pyc
-__pycache__/models.cpython-310.pyc
-__pycache__/optuna.cpython-310.pyc
-__pycache__/pre_processing.cpython-310.pyc
-__pycache__/utilities.cpython-310.pyc
+__pycache__/
 .DS_Store
 /.claude
+results/
+*.pyc
