@@ -292,6 +292,7 @@ class GCN(torch.nn.Module):
     def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.5):
         super(GCN, self).__init__()
         self.conv1 = GCNConv(num_node_features, hidden_units)
+        self.bn1 = nn.BatchNorm1d(hidden_units)
         self.conv2 = GCNConv(hidden_units, num_classes)
         self.dropout = dropout
 
@@ -302,9 +303,10 @@ class GCN(torch.nn.Module):
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
 
         x = self.conv1(x, edge_index)
+        x = self.bn1(x)
         x = F.relu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        
+
         # Output raw logits
         x = self.conv2(x, edge_index)
         return x
@@ -317,12 +319,14 @@ class GAT(nn.Module):
         per_head_dim = max(1, math.ceil(hidden_units / num_heads))
         total_hidden = per_head_dim * num_heads
         self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1)
+        self.bn1 = nn.BatchNorm1d(total_hidden)
         self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2)
 
     def forward(self, data):
         x = data.x
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
         x = self.conv1(x, edge_index)
+        x = self.bn1(x)
         x = F.elu(x)
         x = self.conv2(x, edge_index)
         return x
@@ -333,28 +337,32 @@ class GIN(nn.Module):
         super(GIN, self).__init__()
         nn1 = nn.Sequential(
             nn.Linear(num_node_features, hidden_units),
+            nn.BatchNorm1d(hidden_units),
             nn.ReLU(),
             nn.Linear(hidden_units, hidden_units)
         )
-        self.conv1 = GINConv(nn1)
+        self.conv1 = GINConv(nn1, train_eps=True)
 
         nn2 = nn.Sequential(
             nn.Linear(hidden_units, hidden_units),
+            nn.BatchNorm1d(hidden_units),
             nn.ReLU(),
             nn.Linear(hidden_units, hidden_units)
         )
-        self.conv2 = GINConv(nn2)
+        self.conv2 = GINConv(nn2, train_eps=True)
+        self.bn2 = nn.BatchNorm1d(hidden_units)
         self.fc = nn.Linear(hidden_units, num_classes)
         self.dropout = dropout
 
     def forward(self, data):
         x = data.x
-        batch = data.batch if hasattr(data, 'batch') else None
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
+        x = self.bn2(x)
+        x = F.relu(x)
         x = self.fc(x)
         return x
 
@@ -363,16 +371,18 @@ class MLP(nn.Module):
     def __init__(self, num_node_features, num_classes, hidden_units, dropout_1=0.6, dropout_2=0.5):
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(num_node_features, hidden_units)
+        self.bn1 = nn.BatchNorm1d(hidden_units)
         self.fc2 = nn.Linear(hidden_units, hidden_units)
+        self.bn2 = nn.BatchNorm1d(hidden_units)
         self.fc3 = nn.Linear(hidden_units, num_classes)
         self.dropout_1 = dropout_1
         self.dropout_2 = dropout_2
 
     def forward(self, data):
         x = data.x  # only use node features, no graph structure
-        x = F.relu(self.fc1(x))
+        x = F.relu(self.bn1(self.fc1(x)))
         x = F.dropout(x, p=self.dropout_1, training=self.training)
-        x = F.relu(self.fc2(x))
+        x = F.relu(self.bn2(self.fc2(x)))
         x = F.dropout(x, p=self.dropout_2, training=self.training)
         x = self.fc3(x)
         return x

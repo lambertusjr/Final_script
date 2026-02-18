@@ -139,7 +139,8 @@ def calculate_metrics(y_true, y_pred, y_pred_prob):
     f1 = f1_score(y_true, y_pred, average='weighted')
     f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary') # illicit is class 1
     
-    roc_auc = roc_auc_score(y_true, y_pred_prob[:,1])  # assuming class 1 is the positive class
+    prob_positive = y_pred_prob[:, 1] if y_pred_prob.ndim == 2 else y_pred_prob
+    roc_auc = roc_auc_score(y_true, prob_positive)  # assuming class 1 is the positive class
     pr_auc = np.nan
     
     kappa = cohen_kappa_score(y_true, y_pred)
@@ -197,6 +198,7 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
             penalty='l2',
             max_iter=1000,
             tol=1e-3,
+            class_weight='balanced',
             random_state=42
         )
 
@@ -235,7 +237,7 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         max_features = trial.suggest_categorical('max_features', ['sqrt', 'log2'])
         return RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth,
                                       min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf,
-                                      max_features=max_features, class_weight='balanced')
+                                      max_features=max_features, class_weight='balanced', n_jobs=-1)
 
     elif model == 'GCN':
         from models import GCN

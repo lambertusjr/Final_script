@@ -160,7 +160,7 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
 
         if dataset_name in loader_datasets and batch_size is not None:
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
-                                          batch_size=batch_size, input_nodes=train_mask)
+                                          batch_size=batch_size, input_nodes=train_mask, shuffle=True)
             val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                         batch_size=batch_size, input_nodes=masks['val_mask'])
             best_f1_model_wts, best_f1 = train_and_validate_with_loader(
