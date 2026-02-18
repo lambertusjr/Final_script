@@ -316,14 +316,14 @@ class GAT(nn.Module):
         # Keep the total latent size roughly equal to hidden_units while limiting per-head width
         per_head_dim = max(1, math.ceil(hidden_units / num_heads))
         total_hidden = per_head_dim * num_heads
-        self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1, add_self_loops=False)
-        self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2, add_self_loops=False)
+        self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1)
+        self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2)
 
     def forward(self, data):
         x = data.x
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
         x = self.conv1(x, edge_index)
-        x = F.elu(x, inplace=True)
+        x = F.elu(x)
         x = self.conv2(x, edge_index)
         return x
     

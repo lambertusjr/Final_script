@@ -237,8 +237,8 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
 
     elif model == 'GAT':
         from models import GAT
-        hidden_units = trial.suggest_int('hidden_units', 32, 128)
-        num_heads = trial.suggest_int('num_heads', 1, 8)
+        hidden_units = trial.suggest_int('hidden_units', 32, 256)
+        num_heads = trial.suggest_int('num_heads', 1, 16)
         dropout_1 = trial.suggest_float('dropout_1', 0.0, 0.7)
         dropout_2 = trial.suggest_float('dropout_2', 0.0, 0.7)
         return GAT(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, num_heads=num_heads, dropout_1=dropout_1, dropout_2=dropout_2)

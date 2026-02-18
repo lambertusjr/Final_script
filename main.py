@@ -41,8 +41,8 @@ else:
         "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
-    datasets = ["IBM_AML_HiMedium"]
-    models = ["SVM", "XGB", "RF"]
+    datasets = ["Elliptic"]
+    models = ["GAT"]
 
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
