@@ -7,13 +7,15 @@
 #PBS -M 23724617@sun.ac.za
 #PBS -V
 
-# Usage: qsub -F "AMLSim GAT" submit_RP.sh
-DATASET="${1:?Usage: qsub -F \"DATASET MODEL\" submit_RP.sh}"
-MODEL="${2:?Usage: qsub -F \"DATASET MODEL\" submit_RP.sh}"
+# Usage: qsub -F "AMLSim GAT 56" submit_RP.sh
+DATASET="${1:?Usage: qsub -F \"DATASET MODEL NODE\" submit_RP.sh}"
+MODEL="${2:?Usage: qsub -F \"DATASET MODEL NODE\" submit_RP.sh}"
+NODE="${3:?Usage: qsub -F \"DATASET MODEL NODE\" submit_RP.sh}"
 
-# PBS directives are parsed before $1/$2 are available, so set the job name
-# at runtime and redirect all output to a job-specific log file manually.
+# PBS directives are parsed before $1/$2/$3 are available, so set the job name
+# and node at runtime manually.
 qalter -N "${DATASET}_${MODEL}" "${PBS_JOBID}" 2>/dev/null || true
+qalter -l "select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp0${NODE}" "${PBS_JOBID}" 2>/dev/null || true
 LOGFILE="${PBS_O_WORKDIR}/output_${DATASET}_${MODEL}.out"
 exec > "${LOGFILE}" 2>&1
 
@@ -91,7 +93,7 @@ mkdir -p "${MPLCONFIGDIR}"
 python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(torch.version,'cuda',None), 'cuda_available', torch.cuda.is_available())"
 
 if [[ -f main.py ]]; then
-  echo "Starting ${DATASET} ${MODEL} on $(hostname)"
+  echo "Starting ${DATASET} ${MODEL} on comp0${NODE} (actual: $(hostname))"
   python -u main.py "${DATASET}" "${MODEL}"
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
