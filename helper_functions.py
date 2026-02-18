@@ -428,14 +428,24 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     high = 30000000000 # Increase upper bound
     optimal = 65536 # Higher safe default
     
+    from utilities import ram_is_critical, check_ram_usage
+
     # Define a simple training loop for testing
     def test_batch_size(batch_size):
+        # Guard: check RAM before even attempting this batch size.
+        # If RAM is already critical before we start, reject immediately.
+        usage_pct, avail_gb = check_ram_usage()
+        if ram_is_critical(threshold=0.85):
+            print(f"Batch size {batch_size} skipped: RAM already at {usage_pct:.1f}% "
+                  f"({avail_gb:.1f} GB available) before test started.")
+            return False
+
         try:
             # Create a fresh model and move to device
             model = model_builder().to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
             criterion = torch.nn.CrossEntropyLoss()
-            
+
             loader = NeighborLoader(
                 data,
                 num_neighbors=num_neighbors,
@@ -443,35 +453,39 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 input_nodes=train_mask,
                 shuffle=True
             )
-            
+
             model.train()
-            # Run more batches to ensure peak memory is reached
-            # This better represents actual training conditions
+            # Run batches to ensure peak memory is reached, checking RAM on
+            # every step so we abort as soon as paging would begin.
             steps = 0
+            ram_exceeded = False
             for batch in loader:
                 batch = batch.to(device)
                 optimizer.zero_grad()
                 out = model(batch)
-                
+
                 # Slice logic similar to ModelWrapper
                 batch_size_actual = batch.batch_size
                 out_sliced = out[:batch_size_actual]
                 y_sliced = batch.y[:batch_size_actual]
-                
+
                 loss = criterion(out_sliced, y_sliced)
                 loss.backward()
                 optimizer.step()
-                
+
                 steps += 1
+
+                # Check RAM after every batch step so we catch pressure early
+                usage_pct, avail_gb = check_ram_usage()
+                if ram_is_critical(threshold=0.85):
+                    ram_exceeded = True
+                    print(f"Batch size {batch_size} rejected at step {steps}: "
+                          f"RAM usage {usage_pct:.1f}% ({avail_gb:.1f} GB available). "
+                          f"Reducing to prevent SSD paging.")
+                    break
+
                 if steps >= 10: # Test 10 batches for more accurate memory profile
                     break
-            
-            # Check RAM before cleanup to see peak usage from this batch size
-            from utilities import ram_is_critical, check_ram_usage
-            gc.collect()
-            time.sleep(0.5)  # Brief pause to let OS update memory stats
-            usage_pct, avail_gb = check_ram_usage()
-            ram_exceeded = ram_is_critical(threshold=0.85)
 
             del model, optimizer, criterion, loader
             if steps > 0:
@@ -480,12 +494,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 torch.cuda.empty_cache()
             gc.collect()
 
-            if ram_exceeded:
-                print(f"Batch size {batch_size} rejected: RAM usage {usage_pct:.1f}% "
-                      f"(>{85}%), only {avail_gb:.1f} GB available. "
-                      f"Reducing to prevent SSD paging.")
-                return False
-            return True
+            return not ram_exceeded
             
         except RuntimeError as e:
             error_msg = str(e).lower()
