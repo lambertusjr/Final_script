@@ -12,6 +12,7 @@ metric = BinaryAveragePrecision().to('cuda') if torch.cuda.is_available() else B
 from xgboost import XGBClassifier
 from sklearn.linear_model import SGDClassifier
 import gc
+import time
 from contextlib import contextmanager
 from torch_geometric.loader import NeighborLoader
 
@@ -465,11 +466,25 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 if steps >= 10: # Test 10 batches for more accurate memory profile
                     break
             
+            # Check RAM before cleanup to see peak usage from this batch size
+            from utilities import ram_is_critical, check_ram_usage
+            gc.collect()
+            time.sleep(0.5)  # Brief pause to let OS update memory stats
+            usage_pct, avail_gb = check_ram_usage()
+            ram_exceeded = ram_is_critical(threshold=0.85)
+
             del model, optimizer, criterion, loader
             if steps > 0:
                 del batch, out, out_sliced, loss
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            gc.collect()
+
+            if ram_exceeded:
+                print(f"Batch size {batch_size} rejected: RAM usage {usage_pct:.1f}% "
+                      f"(>{85}%), only {avail_gb:.1f} GB available. "
+                      f"Reducing to prevent SSD paging.")
+                return False
             return True
             
         except RuntimeError as e:
