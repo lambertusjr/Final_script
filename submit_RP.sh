@@ -43,13 +43,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Copying from ${PBS_O_WORKDIR}/ to ${TMP}/"
+# Map DATASET arg to its subdirectory under Datasets/
+case "${DATASET}" in
+  Elliptic)       DATASET_DIR="Datasets/Elliptic_dataset" ;;
+  IBM_AML_HiSmall)  DATASET_DIR="Datasets/IBM_AML_dataset/HiSmall" ;;
+  IBM_AML_LiSmall)  DATASET_DIR="Datasets/IBM_AML_dataset/LiSmall" ;;
+  IBM_AML_HiMedium) DATASET_DIR="Datasets/IBM_AML_dataset/HiMedium" ;;
+  IBM_AML_LiMedium) DATASET_DIR="Datasets/IBM_AML_dataset/LiMedium" ;;
+  AMLSim)         DATASET_DIR="Datasets/AMLSim_dataset" ;;
+  *) echo "ERROR: unknown DATASET '${DATASET}'"; exit 1 ;;
+esac
+
+echo "Copying code from ${PBS_O_WORKDIR}/ to ${TMP}/ (excluding all Datasets)"
 /usr/bin/rsync -vax --delete \
   --exclude 'RP_env.tar.gz' \
   --exclude 'RP_env' \
   --exclude '__pycache__' \
   --exclude 'output_*.out' \
+  --exclude 'Datasets/' \
   "${PBS_O_WORKDIR}/" "${TMP}/"
+
+echo "Copying only ${DATASET_DIR} to ${TMP}/"
+mkdir -p "${TMP}/${DATASET_DIR}"
+/usr/bin/rsync -vax \
+  "${PBS_O_WORKDIR}/${DATASET_DIR}/" "${TMP}/${DATASET_DIR}/"
+
 cd "${TMP}"
 
 command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
