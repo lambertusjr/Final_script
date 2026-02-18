@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N IBM_LM_GCN
+#PBS -N AMLSim_GAT
 #PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056
 #PBS -q ee
 #PBS -l walltime=200:00:00
@@ -59,7 +59,7 @@ python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(
 if [[ -f main.py ]]; then
   echo "Starting Worker 0 on GPU 0 (LiMedium)"
   # Run in background with & and redirect output
-  python -u main.py AMLSim GCN
+  python -u main.py AMLSim GAT
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
 fi
