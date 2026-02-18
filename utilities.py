@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch_geometric.data import Data
 import os
 import json
+import psutil
 
 
 def configure_gpu_memory_limits(fraction=0.95, max_split_size_mb=512):
@@ -27,6 +28,39 @@ def configure_gpu_memory_limits(fraction=0.95, max_split_size_mb=512):
         print(f"GPU memory limited to {fraction*100}% of available memory")
         print(f"CUDA allocator configured with max_split_size_mb={max_split_size_mb}")
 
+    # Print RAM status at startup
+    ram = psutil.virtual_memory()
+    print(f"System RAM: {ram.total / (1024**3):.1f} GB total, "
+          f"{ram.available / (1024**3):.1f} GB available, "
+          f"{ram.percent}% used")
+
+
+def check_ram_usage():
+    """
+    Check current system RAM usage.
+
+    Returns:
+        tuple: (usage_percent, available_gb) - current RAM usage as percentage
+               and available RAM in gigabytes.
+    """
+    ram = psutil.virtual_memory()
+    return ram.percent, ram.available / (1024**3)
+
+
+def ram_is_critical(threshold=0.85):
+    """
+    Check if system RAM usage exceeds the given threshold.
+
+    Args:
+        threshold: Maximum fraction of RAM usage allowed (0.0 to 1.0).
+                   Default 0.85 (85%) - leaves headroom to prevent Windows
+                   from paging to SSD.
+
+    Returns:
+        bool: True if RAM usage exceeds threshold, False otherwise.
+    """
+    usage_percent, available_gb = check_ram_usage()
+    return usage_percent > (threshold * 100)
 
 
 def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning', cache_file='batch_size_cache.json'):
