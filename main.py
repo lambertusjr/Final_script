@@ -42,7 +42,7 @@ else:
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
     datasets = ["Elliptic"]
-    models = ["GAT"]
+    models = ["GCN", "GAT", "GIN", "MLP", "XGB", "RF", "SVM"]
 
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
