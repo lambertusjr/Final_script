@@ -329,7 +329,7 @@ class GAT(nn.Module):
     
 #%% GIN
 class GIN(nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_units):
+    def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.0):
         super(GIN, self).__init__()
         nn1 = nn.Sequential(
             nn.Linear(num_node_features, hidden_units),
@@ -345,6 +345,7 @@ class GIN(nn.Module):
         )
         self.conv2 = GINConv(nn2)
         self.fc = nn.Linear(hidden_units, num_classes)
+        self.dropout = dropout
 
     def forward(self, data):
         x = data.x
@@ -352,6 +353,7 @@ class GIN(nn.Module):
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
         x = self.conv1(x, edge_index)
         x = F.relu(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
         x = self.fc(x)
         return x

@@ -190,10 +190,7 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         return MLP(num_node_features=data.num_node_features, num_classes=2, hidden_units=hidden_units, dropout_1=dropout_1, dropout_2=dropout_2)
     
     elif model == 'SVM':
-        from sklearn.svm import SVC
-        kernel = trial.suggest_categorical('kernel', ['linear', 'rbf'])
-        degree = trial.suggest_int('degree', 2, 5)
-        C = trial.suggest_float('C', 0.1, 10.0, log=True)
+        C = trial.suggest_float('C', 0.01, 100.0, log=True)
         return SGDClassifier(
             loss='hinge',
             alpha=1.0 / (C * data.num_nodes),  # Convert C to alpha
@@ -207,9 +204,12 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         max_depth = trial.suggest_int('max_depth', 5, 15)
         Gamma_XGB = trial.suggest_float('Gamma_XGB', 0, 5)
         n_estimators = trial.suggest_int('n_estimators', 50, 500, step=50)
-        learning_rate_XGB = trial.suggest_float('learning_rate_XGB', 0.005, 0.05, log=False) # XGB learning rate
+        learning_rate_XGB = trial.suggest_float('learning_rate_XGB', 0.001, 0.3, log=True) # XGB learning rate
         colsample_bytree = trial.suggest_float('colsample_bytree', 0.5, 1.0)
         subsample = trial.suggest_float('subsample', 0.5, 1.0)
+        min_child_weight = trial.suggest_int('min_child_weight', 1, 10)
+        reg_alpha = trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True)
+        reg_lambda = trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True)
         return XGBClassifier(
             eval_metric='logloss',
             scale_pos_weight=calculate_scale_pos_weight(data, train_mask),
@@ -219,6 +219,9 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
             colsample_bytree=colsample_bytree,
             gamma=Gamma_XGB,
             subsample=subsample,
+            min_child_weight=min_child_weight,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
             tree_method='hist',
             device="cpu"
         )
@@ -227,7 +230,12 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         from sklearn.ensemble import RandomForestClassifier
         n_estimators = trial.suggest_int('n_estimators', 50, 500, step=50)
         max_depth = trial.suggest_int('max_depth', 5, 15)
-        return RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, class_weight='balanced')
+        min_samples_split = trial.suggest_int('min_samples_split', 2, 20)
+        min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 10)
+        max_features = trial.suggest_categorical('max_features', ['sqrt', 'log2'])
+        return RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth,
+                                      min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf,
+                                      max_features=max_features, class_weight='balanced')
 
     elif model == 'GCN':
         from models import GCN
@@ -238,15 +246,16 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
     elif model == 'GAT':
         from models import GAT
         hidden_units = trial.suggest_int('hidden_units', 32, 256)
-        num_heads = trial.suggest_int('num_heads', 1, 16)
+        num_heads = trial.suggest_int('num_heads', 1, 8)
         dropout_1 = trial.suggest_float('dropout_1', 0.0, 0.7)
         dropout_2 = trial.suggest_float('dropout_2', 0.0, 0.7)
         return GAT(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, num_heads=num_heads, dropout_1=dropout_1, dropout_2=dropout_2)
 
     elif model == 'GIN':
         from models import GIN
-        hidden_units = trial.suggest_int('hidden_units', 32, 160)
-        return GIN(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units)
+        hidden_units = trial.suggest_int('hidden_units', 32, 256)
+        dropout = trial.suggest_float('dropout', 0.0, 0.5)
+        return GIN(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, dropout=dropout)
 
     else:
         raise ValueError(f"Unknown model: {model}")

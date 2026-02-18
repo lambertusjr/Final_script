@@ -206,7 +206,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
             model_wrapper.model.to(device)
 
-            num_epochs = 50 if model_name == "MLP" else 150
+            num_epochs = 200 if model_name == "MLP" else 150
 
             # ── TRAIN ────────────────────────────────────────────────────
             if use_loader:
