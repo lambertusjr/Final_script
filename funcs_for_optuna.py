@@ -103,64 +103,57 @@ def hyperparameter_tuning(
     return model_parameters
 
 def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=None, num_neighbors=[10, 10]):
-    # Get model instance with trial-suggested hyperparameters
-    learning_rate = trial.suggest_float('learning_rate', 0.005, 0.05, log=False)
-    weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
-    
-    gamma_focal = trial.suggest_float('gamma_focal', 0.1, 5.0)
     train_mask = masks['train_mask']
     # Bug 15 fix: device must be defined before any conditional block that uses it
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Use pre-calculated alpha_focal if provided, else calculate (fallback)
-    if alpha_focal is None:
-        alpha_focal = balanced_class_weights(data.y[train_mask]).to(device)
-    
-    # Validate alpha_focal has correct shape (should be [2] for binary classification)
-    if alpha_focal.shape[0] != 2:
-        raise ValueError(f"alpha_focal should have 2 elements for binary classification, got {alpha_focal.shape[0]}")
-        
-    criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
-    
-    early_stop_patience = trial.suggest_int('early_stop_patience', 5, 40)
-    early_stop_min_delta = trial.suggest_float('early_stop_min_delta', 1e-4, 5e-3, log=True)
-    trial_early_stop_args = _early_stop_args_from({
-        "early_stop_patience": early_stop_patience,
-        "early_stop_min_delta": early_stop_min_delta
-    })
-    
+    wrapper_models = ['MLP', 'GCN', 'GAT', 'GIN']
+    sklearn_models = ['SVM', 'XGB', 'RF']
+
     # Pass train_mask to _get_model_instance for XGB leakage prevention
     model_instance = _get_model_instance(trial, model, data, device, train_mask=train_mask)
 
-    wrapper_models = ['MLP', 'GCN', 'GAT', 'GIN']
-    sklearn_models = ['SVM', 'XGB', 'RF']
-    
-    if model in sklearn_models:
-        num_epochs = 50  
-    elif model == "MLP":
-        num_epochs = 50
-    else: # GNNs
-        num_epochs = 400
-        
-    # Bug 14 fix: train_and_validate expects a dict (calls .items()), not a list
-    if dataset_name == "Elliptic":
-        train_val_masks = {
-            'train_mask': masks['train_mask'],
-            'train_perf_eval_mask': masks['train_perf_eval_mask'],
-            'val_mask': masks['val_mask'],
-            'val_perf_eval_mask': masks['val_perf_eval_mask'],
-        }
-    else:
-        train_val_masks = {
-            'train_mask': masks['train_mask'],
-            'val_mask': masks['val_mask'],
-        }
-    
-    
-    loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
-    full_batch_datasets = {"Elliptic"}
-
     if model in wrapper_models:
+        # Wrapper-only hyperparameters (not suggested for sklearn models)
+        learning_rate = trial.suggest_float('learning_rate', 1e-4, 5e-2, log=True)
+        weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
+        gamma_focal = trial.suggest_float('gamma_focal', 0.1, 5.0)
+        early_stop_patience = trial.suggest_int('early_stop_patience', 5, 40)
+        early_stop_min_delta = trial.suggest_float('early_stop_min_delta', 1e-4, 5e-3, log=True)
+        trial_early_stop_args = _early_stop_args_from({
+            "early_stop_patience": early_stop_patience,
+            "early_stop_min_delta": early_stop_min_delta
+        })
+
+        # Use pre-calculated alpha_focal if provided, else calculate (fallback)
+        if alpha_focal is None:
+            alpha_focal = balanced_class_weights(data.y[train_mask]).to(device)
+
+        # Validate alpha_focal has correct shape (should be [2] for binary classification)
+        if alpha_focal.shape[0] != 2:
+            raise ValueError(f"alpha_focal should have 2 elements for binary classification, got {alpha_focal.shape[0]}")
+
+        criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
+
+        num_epochs = 200 if model == "MLP" else 400  # GNNs get 400, MLP gets 200
+
+        # Bug 14 fix: train_and_validate expects a dict (calls .items()), not a list
+        if dataset_name == "Elliptic":
+            train_val_masks = {
+                'train_mask': masks['train_mask'],
+                'train_perf_eval_mask': masks['train_perf_eval_mask'],
+                'val_mask': masks['val_mask'],
+                'val_perf_eval_mask': masks['val_perf_eval_mask'],
+            }
+        else:
+            train_val_masks = {
+                'train_mask': masks['train_mask'],
+                'val_mask': masks['val_mask'],
+            }
+
+        loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
+        full_batch_datasets = {"Elliptic"}
+
         optimiser = torch.optim.Adam(model_instance.parameters(), lr=learning_rate, weight_decay=weight_decay)
         model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
         model_wrapper.model.to(device)
