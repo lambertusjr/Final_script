@@ -428,17 +428,23 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     high = 30000000000 # Increase upper bound
     optimal = 65536 # Higher safe default
     
-    from utilities import ram_is_critical, check_ram_usage
+    from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
 
     # Define a simple training loop for testing
     def test_batch_size(batch_size):
-        # Guard: check RAM before even attempting this batch size.
-        # If RAM is already critical before we start, reject immediately.
+        # Guard: check RAM and VRAM before even attempting this batch size.
         usage_pct, avail_gb = check_ram_usage()
         if ram_is_critical(threshold=0.85):
             print(f"Batch size {batch_size} skipped: RAM already at {usage_pct:.1f}% "
                   f"({avail_gb:.1f} GB available) before test started.")
             return False
+
+        if torch.cuda.is_available():
+            vram_frac, vram_free = check_vram_usage()
+            if vram_is_critical(threshold=0.90):
+                print(f"Batch size {batch_size} skipped: VRAM already at {vram_frac*100:.1f}% "
+                      f"({vram_free:.2f} GB free) before test started.")
+                return False
 
         try:
             # Create a fresh model and move to device
@@ -483,6 +489,16 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                           f"RAM usage {usage_pct:.1f}% ({avail_gb:.1f} GB available). "
                           f"Reducing to prevent SSD paging.")
                     break
+
+                # Check VRAM after every batch step
+                if torch.cuda.is_available():
+                    vram_frac, vram_free = check_vram_usage()
+                    if vram_is_critical(threshold=0.90):
+                        ram_exceeded = True
+                        print(f"Batch size {batch_size} rejected at step {steps}: "
+                              f"VRAM usage {vram_frac*100:.1f}% ({vram_free:.2f} GB free). "
+                              f"Reducing to prevent GPU OOM.")
+                        break
 
                 if steps >= 10: # Test 10 batches for more accurate memory profile
                     break

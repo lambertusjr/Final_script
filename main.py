@@ -1,4 +1,7 @@
 import os
+# Must be set BEFORE any torch/CUDA imports to take effect
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,expandable_segments:True'
+
 import gc
 from dependencies import *
 from utilities import *
@@ -6,7 +9,7 @@ from helper_functions import check_study_existence
 from funcs_for_optuna import hyperparameter_tuning
 from testing import run_final_evaluation
 import optuna
-configure_gpu_memory_limits(fraction=0.95, max_split_size_mb=512)
+configure_gpu_memory_limits(fraction=0.95)
 seeded_run = False
 if seeded_run:
     set_seed(42)

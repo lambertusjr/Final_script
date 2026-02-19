@@ -8,25 +8,23 @@ import json
 import psutil
 
 
-def configure_gpu_memory_limits(fraction=0.95, max_split_size_mb=512):
+def configure_gpu_memory_limits(fraction=0.95):
     """
     Configure GPU memory limits to prevent spillover to system RAM.
-    
+
+    Note: PYTORCH_CUDA_ALLOC_CONF must be set via os.environ BEFORE any
+    torch import (done at the top of main.py). Setting it here would have
+    no effect since the CUDA allocator is already initialized.
+
     Args:
         fraction: Maximum fraction of GPU memory to use (0.0 to 1.0)
-        max_split_size_mb: Maximum size for memory splits in MB
     """
     if torch.cuda.is_available():
-        # Limit the fraction of GPU memory PyTorch can use
         torch.cuda.set_per_process_memory_fraction(fraction)
-        
-        # Configure CUDA allocator for stricter memory management
-        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = (
-            f'max_split_size_mb:{max_split_size_mb},'
-            f'garbage_collection_threshold:{fraction}'
-        )
         print(f"GPU memory limited to {fraction*100}% of available memory")
-        print(f"CUDA allocator configured with max_split_size_mb={max_split_size_mb}")
+
+        alloc_conf = os.environ.get('PYTORCH_CUDA_ALLOC_CONF', 'not set')
+        print(f"PYTORCH_CUDA_ALLOC_CONF: {alloc_conf}")
 
     # Print RAM status at startup
     ram = psutil.virtual_memory()
@@ -61,6 +59,38 @@ def ram_is_critical(threshold=0.85):
     """
     usage_percent, available_gb = check_ram_usage()
     return usage_percent > (threshold * 100)
+
+
+def check_vram_usage():
+    """
+    Check current GPU VRAM usage.
+
+    Returns:
+        tuple: (usage_fraction, free_gb) - fraction of total VRAM reserved by
+               PyTorch (0.0 to 1.0) and free VRAM in gigabytes.
+    """
+    if not torch.cuda.is_available():
+        return 0.0, float('inf')
+    reserved = torch.cuda.memory_reserved()
+    total = torch.cuda.get_device_properties(0).total_memory
+    usage_fraction = reserved / total
+    free_gb = (total - reserved) / (1024**3)
+    return usage_fraction, free_gb
+
+
+def vram_is_critical(threshold=0.90):
+    """
+    Check if GPU VRAM usage exceeds the given threshold.
+
+    Args:
+        threshold: Maximum fraction of VRAM usage allowed (0.0 to 1.0).
+                   Default 0.90 (90%).
+
+    Returns:
+        bool: True if VRAM usage exceeds threshold, False otherwise.
+    """
+    usage_fraction, _ = check_vram_usage()
+    return usage_fraction > threshold
 
 
 def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning', cache_file='batch_size_cache.json'):

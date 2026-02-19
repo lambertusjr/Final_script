@@ -1,6 +1,6 @@
 import torch
 import gc
-from utilities import ram_is_critical, check_ram_usage
+from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
 
 def train_and_validate_with_loader(
     model_wrapper,
@@ -47,6 +47,10 @@ def train_and_validate_with_loader(
                 print(f"WARNING: RAM usage {usage_pct:.1f}% at epoch {epoch+1}, "
                       f"only {avail_gb:.1f} GB available. "
                       f"System may start paging to SSD.")
+            if torch.cuda.is_available() and vram_is_critical(threshold=0.92):
+                vram_frac, vram_free = check_vram_usage()
+                print(f"WARNING: VRAM usage {vram_frac*100:.1f}% at epoch {epoch+1}, "
+                      f"only {vram_free:.2f} GB free.")
 
     return best_f1_model_wts, best_f1
 
@@ -110,6 +114,10 @@ def train_and_validate(
                 print(f"WARNING: RAM usage {usage_pct:.1f}% at epoch {epoch+1}, "
                       f"only {avail_gb:.1f} GB available. "
                       f"System may start paging to SSD.")
+            if torch.cuda.is_available() and vram_is_critical(threshold=0.92):
+                vram_frac, vram_free = check_vram_usage()
+                print(f"WARNING: VRAM usage {vram_frac*100:.1f}% at epoch {epoch+1}, "
+                      f"only {vram_free:.2f} GB free.")
 
     return best_f1_model_wts, best_f1
 
