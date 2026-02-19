@@ -66,15 +66,18 @@ def check_vram_usage():
     Check current GPU VRAM usage.
 
     Returns:
-        tuple: (usage_fraction, free_gb) - fraction of total VRAM reserved by
-               PyTorch (0.0 to 1.0) and free VRAM in gigabytes.
+        tuple: (usage_fraction, free_gb) - fraction of total VRAM actually
+               allocated by PyTorch (0.0 to 1.0) and free VRAM in gigabytes.
+               Uses memory_allocated (actual tensors) rather than
+               memory_reserved (caching allocator pool) to avoid
+               overestimating usage and prematurely limiting batch sizes.
     """
     if not torch.cuda.is_available():
         return 0.0, float('inf')
-    reserved = torch.cuda.memory_reserved()
+    allocated = torch.cuda.memory_allocated()
     total = torch.cuda.get_device_properties(0).total_memory
-    usage_fraction = reserved / total
-    free_gb = (total - reserved) / (1024**3)
+    usage_fraction = allocated / total
+    free_gb = (total - allocated) / (1024**3)
     return usage_fraction, free_gb
 
 
