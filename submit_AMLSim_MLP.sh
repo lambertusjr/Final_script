@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N AMLSim_MLP
-#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056
+#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp055
 #PBS -q ee
 #PBS -l walltime=200:00:00
 #PBS -j oe
@@ -43,7 +43,6 @@ DATASET_DIR="Datasets/AMLSim_dataset"
 
 echo "Copying code from ${PBS_O_WORKDIR}/ to ${TMP}/ (excluding all Datasets)"
 /usr/bin/rsync -vax --delete \
-  --exclude 'RP_env.tar.gz' \
   --exclude 'RP_env' \
   --exclude '__pycache__' \
   --exclude 'output_*.out' \
@@ -61,7 +60,7 @@ command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
 
 # prebuilt env (extract into its own subdir so activate path exists)
 mkdir -p "${TMP}/RP_env"
-tar -xzf "$PBS_O_WORKDIR/RP_env.tar.gz" -C "${TMP}/RP_env"
+tar -xzf "${TMP}/RP_env.tar.gz" -C "${TMP}/RP_env"
 # conda-pack activate references some unset vars under set -u; relax then restore
 set +u
 source "${TMP}/RP_env/bin/activate"
@@ -78,7 +77,7 @@ mkdir -p "${MPLCONFIGDIR}"
 python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(torch.version,'cuda',None), 'cuda_available', torch.cuda.is_available())"
 
 if [[ -f main.py ]]; then
-  echo "Starting ${DATASET} ${MODEL} on comp056 (actual: $(hostname))"
+  echo "Starting ${DATASET} ${MODEL} on comp055 (actual: $(hostname))"
   python -u main.py "${DATASET}" "${MODEL}"
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
