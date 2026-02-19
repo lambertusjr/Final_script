@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056
+#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp055
 #PBS -q ee
 #PBS -l walltime=200:00:00
 #PBS -j oe
