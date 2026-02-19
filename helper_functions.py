@@ -515,19 +515,23 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
         except RuntimeError as e:
             error_msg = str(e).lower()
             if "out of memory" in error_msg or "cuda" in error_msg:
-                print(f"Batch size {batch_size} failed with GPU error: {type(e).__name__}")
-                if torch.cuda.is_available():
-                     torch.cuda.empty_cache()
-                return False
+                print(f"Batch size {batch_size} failed with GPU OOM/CUDA error: {e}")
             else:
                 print(f"Batch size {batch_size} failed with RuntimeError: {e}")
-                if torch.cuda.is_available():
-                     torch.cuda.empty_cache()
-                return False
+            # Clean up GPU state after any RuntimeError to prevent corrupted CUDA context
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return False
         except Exception as e:
             print(f"Batch size {batch_size} failed with error: {type(e).__name__}: {e}")
             if torch.cuda.is_available():
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
+            gc.collect()
             return False
 
     # 1. Exponential search to find upper bound
