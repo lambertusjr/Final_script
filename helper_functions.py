@@ -277,46 +277,50 @@ def calculate_scale_pos_weight(data, train_mask):
 
 def check_study_existence(model_name, data_for_optimization):
     """
-    Check if an Optuna study exists and has a sufficient number of trials (>= 50).
-    
-    If a study exists but has fewer than 50 trials, it is automatically
-    deleted.
-    
+    Check if an Optuna study exists and has completed the required number of trials.
+
+    The target trial count is inferred from the model type:
+      - Wrapper models (MLP, GCN, GAT, GIN): 100 trials required
+      - Sklearn models (SVM, XGB, RF):         50 trials required
+
+    Incomplete studies are NOT deleted — they will be resumed by
+    ``hyperparameter_tuning`` which calculates and runs only the
+    remaining trials.
+
     Parameters
     ----------
     model_name : str
         Name of the model (MLP, SVM, XGB, RF, GCN, GAT, GIN).
     data_for_optimization : str
         Name of the dataset used for optimization.
-        
+
     Returns
     -------
     exists : bool
-        True if a study exists with >= 50 trials, False otherwise.
+        True if the study has >= required completed trials, False otherwise.
     """
+    sklearn_models = {'SVM', 'XGB', 'RF'}
+    required = 50 if model_name in sklearn_models else 100
+
     study_name = f'{model_name}_optimization on {data_for_optimization} dataset'
     storage_url = f'sqlite:///optimization_results_on_{data_for_optimization}_{model_name}.db'
 
-    
     try:
-        # 1. Attempt to load the study
         study = optuna.load_study(study_name=study_name, storage=storage_url)
-        
-        # 2. Study exists, check the number of trials (runs)
-        num_trials = len(study.trials)
-        
-        if num_trials < 35:
-            # 3. Less than 50 runs: wipe the study and return False
-            print(f"Study '{study_name}' found with only {num_trials} trials (< 50). Deleting study.")
-            optuna.delete_study(study_name=study_name, storage=storage_url)
-            return False
-        else:
-            # 4. 50 or more runs: study is valid, return True
-            print(f"Study '{study_name}' found with {num_trials} trials (>= 50). Study is valid.")
+
+        num_completed = len([t for t in study.trials
+                             if t.state == optuna.trial.TrialState.COMPLETE])
+
+        if num_completed >= required:
+            print(f"Study '{study_name}' complete: {num_completed}/{required} trials done.")
             return True
-            
+        else:
+            remaining = required - num_completed
+            print(f"Study '{study_name}' incomplete: {num_completed}/{required} trials done, "
+                  f"{remaining} remaining.")
+            return False
+
     except KeyError:
-        # 5. Study does not exist: return False
         print(f"Study '{study_name}' not found.")
         return False
     
@@ -416,8 +420,8 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
             reserved_fraction = 0.93  # Use up to 93% for evaluation
             print(f"Running in EVALUATION mode: will use up to 93% of GPU memory")
         else:
-            reserved_fraction = 0.90  # Conservative for tuning (avoid OOM during training)
-            print(f"Running in TUNING mode: will use up to 90% of GPU memory")
+            reserved_fraction = 0.80  # Conservative for tuning (avoid OOM during training)
+            print(f"Running in TUNING mode: will use up to 80% of GPU memory")
 
         max_memory_limit = int(total_gpu_memory * reserved_fraction)
         print(f"GPU memory limit: {max_memory_limit / (1024**3):.2f} GB") #1024^3 = GB

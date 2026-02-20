@@ -1,5 +1,6 @@
 import torch
 import gc
+import optuna
 from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
 
 def train_and_validate_with_loader(
@@ -14,13 +15,24 @@ def train_and_validate_with_loader(
     best_f1 = -1
     epochs_without_improvement = 0
     best_f1_model_wts = None
-    
-    for epoch in range(num_epochs):
-        # Bug 11 fix: method is train_step_loader, not train_step
-        train_loss, f1_illicit = model_wrapper.train_step_loader(train_loader)
 
-        # Bug 12 fix: validate on val_loader each epoch so early stopping uses val F1, not train F1
-        _, val_f1_illicit = model_wrapper.evaluate_loader_mini(val_loader)
+    for epoch in range(num_epochs):
+        try:
+            # Bug 11 fix: method is train_step_loader, not train_step
+            train_loss, f1_illicit = model_wrapper.train_step_loader(train_loader)
+
+            # Bug 12 fix: validate on val_loader each epoch so early stopping uses val F1, not train F1
+            _, val_f1_illicit = model_wrapper.evaluate_loader_mini(val_loader)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                # Clean up GPU state before pruning
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                gc.collect()
+                print(f"CUDA OOM at epoch {epoch+1}. Pruning trial.")
+                raise optuna.TrialPruned(f"CUDA OOM at epoch {epoch+1}")
+            raise
         current_f1 = val_f1_illicit
         
         improved = current_f1 > (best_f1 + min_delta)

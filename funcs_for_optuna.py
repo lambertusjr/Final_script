@@ -57,10 +57,8 @@ def hyperparameter_tuning(
         study_name = f'{model_name}_optimization on {dataset_name} dataset'
         db_path = f'sqlite:///optimization_results_on_{dataset_name}_{model_name}.db'
         if check_study_existence(model_name, dataset_name):
-            print(f"Study for {model_name} on {dataset_name} already exists. Skipping optimization.")
+            print(f"Study for {model_name} on {dataset_name} already complete. Skipping optimization.")
             continue
-
-        print(f"Starting optimization for {model_name} on {dataset_name} with {n_trials} trials.")
 
         # Find optimal batch size for NeighborLoader datasets with wrapper models
         batch_size = None
@@ -84,8 +82,32 @@ def hyperparameter_tuning(
             storage=db_path,
             load_if_exists=True
         )
+
+        # Count only successfully completed trials so partial/failed runs don't
+        # inflate the count, and calculate how many trials still need to run.
+        num_completed = len([t for t in study.trials
+                             if t.state == optuna.trial.TrialState.COMPLETE])
+        remaining_trials = max(0, n_trials - num_completed)
+
+        if remaining_trials == 0:
+            # Guard: shouldn't normally be reached (check_study_existence catches
+            # this), but handle gracefully just in case.
+            print(f"Study for {model_name} on {dataset_name} already has "
+                  f"{num_completed} completed trials. Skipping.")
+            model_parameters[model_name].append(study.best_params)
+            continue
+
+        if num_completed > 0:
+            print(f"Resuming optimization for {model_name} on {dataset_name}: "
+                  f"{num_completed} trials done, {remaining_trials} remaining "
+                  f"(target: {n_trials}).")
+        else:
+            print(f"Starting optimization for {model_name} on {dataset_name} "
+                  f"with {n_trials} trials.")
+
         alpha_focal = balanced_class_weights(data.y)
-        with tqdm(total=n_trials, desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
+        with tqdm(total=n_trials, initial=num_completed,
+                  desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
             def _optuna_progress_callback(study_inner, trial):
                 trial_bar.update()
 
@@ -94,7 +116,7 @@ def hyperparameter_tuning(
                     objective, model_name, trial, model_name, data,
                     alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks,
                     batch_size=batch_size, num_neighbors=num_neighbors),
-                n_trials=n_trials,
+                n_trials=remaining_trials,
                 callbacks=[_optuna_progress_callback]
             )
         model_parameters[model_name].append(study.best_params)
