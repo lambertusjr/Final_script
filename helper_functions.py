@@ -417,11 +417,11 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
         total_gpu_memory = torch.cuda.get_device_properties(device).total_memory
         # For evaluation phase, use more aggressive memory allocation
         if phase == 'evaluation':
-            reserved_fraction = 0.93  # Use up to 93% for evaluation
-            print(f"Running in EVALUATION mode: will use up to 93% of GPU memory")
+            reserved_fraction = 0.80  # Use up to 80% for evaluation
+            print(f"Running in EVALUATION mode: will use up to 80% of GPU memory")
         else:
-            reserved_fraction = 0.80  # Conservative for tuning (avoid OOM during training)
-            print(f"Running in TUNING mode: will use up to 80% of GPU memory")
+            reserved_fraction = 0.70  # Conservative for tuning (avoid OOM during training)
+            print(f"Running in TUNING mode: will use up to 70% of GPU memory")
 
         max_memory_limit = int(total_gpu_memory * reserved_fraction)
         print(f"GPU memory limit: {max_memory_limit / (1024**3):.2f} GB") #1024^3 = GB
@@ -445,7 +445,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
 
         if torch.cuda.is_available():
             vram_frac, vram_free = check_vram_usage()
-            if vram_is_critical(threshold=0.93):
+            if vram_is_critical(threshold=0.80):
                 print(f"Batch size {batch_size} skipped: VRAM already at {vram_frac*100:.1f}% "
                       f"({vram_free:.2f} GB free) before test started.")
                 return False
@@ -497,7 +497,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 # Check VRAM after every batch step
                 if torch.cuda.is_available():
                     vram_frac, vram_free = check_vram_usage()
-                    if vram_is_critical(threshold=0.93):
+                    if vram_is_critical(threshold=0.80):
                         ram_exceeded = True
                         print(f"Batch size {batch_size} rejected at step {steps}: "
                               f"VRAM usage {vram_frac*100:.1f}% ({vram_free:.2f} GB free). "

@@ -59,7 +59,7 @@ def train_and_validate_with_loader(
                 print(f"WARNING: RAM usage {usage_pct:.1f}% at epoch {epoch+1}, "
                       f"only {avail_gb:.1f} GB available. "
                       f"System may start paging to SSD.")
-            if torch.cuda.is_available() and vram_is_critical(threshold=0.93):
+            if torch.cuda.is_available() and vram_is_critical(threshold=0.80):
                 vram_frac, vram_free = check_vram_usage()
                 print(f"WARNING: VRAM usage {vram_frac*100:.1f}% at epoch {epoch+1}, "
                       f"only {vram_free:.2f} GB free.")
@@ -126,7 +126,7 @@ def train_and_validate(
                 print(f"WARNING: RAM usage {usage_pct:.1f}% at epoch {epoch+1}, "
                       f"only {avail_gb:.1f} GB available. "
                       f"System may start paging to SSD.")
-            if torch.cuda.is_available() and vram_is_critical(threshold=0.93):
+            if torch.cuda.is_available() and vram_is_critical(threshold=0.80):
                 vram_frac, vram_free = check_vram_usage()
                 print(f"WARNING: VRAM usage {vram_frac*100:.1f}% at epoch {epoch+1}, "
                       f"only {vram_free:.2f} GB free.")

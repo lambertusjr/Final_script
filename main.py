@@ -9,7 +9,7 @@ from helper_functions import check_study_existence
 from funcs_for_optuna import hyperparameter_tuning
 from testing import run_final_evaluation
 import optuna
-configure_gpu_memory_limits(fraction=0.95)
+configure_gpu_memory_limits(fraction=0.85)
 seeded_run = False
 if seeded_run:
     set_seed(42)
