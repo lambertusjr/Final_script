@@ -97,6 +97,34 @@ def vram_is_critical(threshold=0.90):
     return usage_fraction > threshold
 
 
+def cuda_context_healthy():
+    """
+    Check if the CUDA context is still healthy after a caught OOM or other error.
+
+    Performs a small allocation + sync to verify the GPU driver is responsive.
+    If the context is corrupted, logs a warning and returns False so callers
+    can abort gracefully instead of triggering an access violation.
+
+    Returns:
+        bool: True if CUDA is unavailable (CPU-only) or context is healthy,
+              False if the context appears corrupted.
+    """
+    if not torch.cuda.is_available():
+        return True
+    try:
+        torch.cuda.synchronize()
+        # Small probe allocation to verify the allocator is functional
+        probe = torch.zeros(1, device='cuda')
+        del probe
+        torch.cuda.synchronize()
+        return True
+    except RuntimeError as e:
+        print(f"CUDA context health check FAILED: {e}")
+        print("The GPU context is likely corrupted. Further CUDA operations "
+              "may cause access violations. Consider restarting the kernel.")
+        return False
+
+
 def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning', cache_file='batch_size_cache.json'):
     """
     Save optimal batch size for a dataset-model combination with phase distinction.

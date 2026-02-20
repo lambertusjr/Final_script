@@ -14,6 +14,7 @@ from sklearn.linear_model import SGDClassifier
 import gc
 import time
 from contextlib import contextmanager
+from utilities import cuda_context_healthy
 from torch_geometric.loader import NeighborLoader
 
 
@@ -358,18 +359,17 @@ def run_trial_with_cleanup(trial_func, model_name, *args, **kwargs):
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
-        
+
         # Aggressive garbage collection
         gc.collect()
         gc.collect()  # Run twice to catch circular references
-        
-        # Force collection of unreachable objects
-        import sys
-        if hasattr(sys, 'ps1'):  # Only if interactive session
-            pass  # Don't pollute notebook output
-        else:
-            # In script mode, additional cleanup
-            gc.collect()
+
+        # Verify CUDA context is still usable after trial cleanup
+        if torch.cuda.is_available() and not cuda_context_healthy():
+            raise RuntimeError(
+                "CUDA context corrupted after trial cleanup. "
+                "Restart the kernel to avoid access violations."
+            )
         
 @contextmanager
 def inference_mode_if_needed(model_name: str):
@@ -529,6 +529,11 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if not cuda_context_healthy():
+                raise RuntimeError(
+                    "CUDA context corrupted after OOM during batch size search. "
+                    "Restart the kernel to avoid access violations."
+                )
             return False
         except Exception as e:
             print(f"Batch size {batch_size} failed with error: {type(e).__name__}: {e}")

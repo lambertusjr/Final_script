@@ -1,7 +1,7 @@
 import torch
 import gc
 import optuna
-from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
+from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage, cuda_context_healthy
 
 def train_and_validate_with_loader(
     model_wrapper,
@@ -31,7 +31,11 @@ def train_and_validate_with_loader(
                     torch.cuda.empty_cache()
                 gc.collect()
                 print(f"CUDA OOM at epoch {epoch+1}. Pruning trial.")
-                raise optuna.TrialPruned(f"CUDA OOM at epoch {epoch+1}")
+                if not cuda_context_healthy():
+                    raise RuntimeError(
+                        f"CUDA context corrupted after OOM at epoch {epoch+1}. "
+                        "Restart the kernel to avoid access violations."
+                    )
             raise
         current_f1 = val_f1_illicit
         

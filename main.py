@@ -1,6 +1,6 @@
 import os
 # Must be set BEFORE any torch/CUDA imports to take effect
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,expandable_segments:True'
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
 import gc
 from dependencies import *
@@ -9,7 +9,7 @@ from helper_functions import check_study_existence
 from funcs_for_optuna import hyperparameter_tuning
 from testing import run_final_evaluation
 import optuna
-configure_gpu_memory_limits(fraction=0.85)
+configure_gpu_memory_limits(fraction=0.75)
 seeded_run = False
 if seeded_run:
     set_seed(42)
@@ -116,10 +116,12 @@ for idx, dataset in enumerate(datasets, 1):
         # Clean up tuning artifacts before evaluation
         del data, masks, model_parameters
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
         gc.collect()
         gc.collect()
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
             print(f"GPU memory cleared after {dataset}")
 
@@ -199,6 +201,7 @@ for idx, dataset in enumerate(datasets, 1):
 
     # Clean up GPU memory between datasets
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
         print(f"GPU memory cleared after {dataset}")
 
