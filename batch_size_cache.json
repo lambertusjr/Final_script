@@ -1,3 +1,8 @@
 {
-  "IBM_AML_HiSmall_GIN_tuning": 642048
+  "IBM_AML_HiSmall_GIN_tuning": 642048,
+  "IBM_AML_HiSmall_MLP_tuning": 1819136,
+  "IBM_AML_LiSmall_GCN_tuning": 2052608,
+  "IBM_AML_LiSmall_GIN_tuning": 965017,
+  "IBM_AML_LiSmall_GAT_tuning": 1336627,
+  "IBM_AML_LiSmall_MLP_tuning": 1747148
 }

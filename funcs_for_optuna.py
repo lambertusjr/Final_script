@@ -117,6 +117,7 @@ def hyperparameter_tuning(
                     alpha_focal=alpha_focal, dataset_name=dataset_name, masks=masks,
                     batch_size=batch_size, num_neighbors=num_neighbors),
                 n_trials=remaining_trials,
+                catch=(torch.OutOfMemoryError,),
                 callbacks=[_optuna_progress_callback]
             )
         model_parameters[model_name].append(study.best_params)
