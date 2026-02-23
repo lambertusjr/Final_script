@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N IBM_AML_HiMedium_MLP
-#PBS -l select=1:ncpus=4:mem=64GB:ngpus=1:Qlist=ee:host=comp055
+#PBS -l select=1:ncpus=4:mem=64GB:ngpus=1:Qlist=ee:host=comp056
 #PBS -q ee
 #PBS -l walltime=200:00:00
 #PBS -j oe
@@ -77,7 +77,8 @@ mkdir -p "${MPLCONFIGDIR}"
 python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(torch.version,'cuda',None), 'cuda_available', torch.cuda.is_available())"
 
 if [[ -f main.py ]]; then
-  echo "Starting ${DATASET} ${MODEL} on comp055 (actual: $(hostname))"
+  echo "Starting ${DATASET} ${MODEL} on comp056 (actual: $(hostname))"
+  export CUDA_VISIBLE_DEVICES=3
   python -u main.py "${DATASET}" "${MODEL}"
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
