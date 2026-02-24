@@ -7,6 +7,10 @@
   "IBM_AML_LiSmall_MLP_tuning": 1747148,
   "IBM_AML_LiMedium_GCN_tuning": 239308,
   "IBM_AML_LiMedium_GCN_evaluation": 244346,
-  "IBM_AML_HiMedium_GAT_tuning": 600000,
-  "IBM_AML_HiMedium_GCN_tuning": 350000
+  "IBM_AML_LiMedium_GIN_tuning": 800000,
+  "IBM_AML_HiMedium_GCN_tuning": 350000,
+  "IBM_AML_HiMedium_GIN_tuning": 877465,
+  "IBM_AML_HiMedium_GIN_evaluation": 1259479,
+  "IBM_AML_HiMedium_GAT_tuning": 1540915,
+  "IBM_AML_HiMedium_GAT_evaluation": 1573355
 }
