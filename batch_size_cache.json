@@ -13,5 +13,6 @@
   "IBM_AML_HiMedium_GIN_evaluation": 1259479,
   "IBM_AML_HiMedium_GAT_tuning": 1540915,
   "IBM_AML_HiMedium_GAT_evaluation": 1573355,
-  "iBM_AML_LiMedium_MLP_tuning": 1800000
+  "iBM_AML_LiMedium_MLP_tuning": 1800000,
+  "iBM_AML_HiMedium_MLP_tuning": 1800000
 }
