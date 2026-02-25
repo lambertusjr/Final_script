@@ -26,5 +26,11 @@
   "IBM_AML_LiSmall_GCN_evaluation": 2095820,
   "IBM_AML_LiSmall_GIN_evaluation": 985333,
   "IBM_AML_LiSmall_GAT_evaluation": 1340928,
-  "IBM_AML_LiSmall_MLP_evaluation": 1777971
+  "IBM_AML_LiSmall_MLP_evaluation": 1777971,
+  "AMLSim_XGB_evaluation": 31784,
+  "AMLSim_XGB_tuning": 31129,
+  "AMLSim_RF_evaluation": 31784,
+  "AMLSim_RF_tuning": 31129,
+  "AMLSim_SVM_evaluation": 31784,
+  "AMLSim_SVM_tuning": 31129
 }

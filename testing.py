@@ -172,7 +172,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
 
     # ── 6. Adjust n_runs for RF ──────────────────────────────────────────
     if model_name == 'RF':
-        n_runs = 10
+        n_runs = 30
     seeds = [secrets.randbits(32) for _ in range(n_runs)]
 
     # ══════════════════════════════════════════════════════════════════════
