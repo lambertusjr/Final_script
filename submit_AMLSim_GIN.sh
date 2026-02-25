@@ -78,6 +78,7 @@ python -c "import torch, sys; print('torch', torch.__version__, 'cuda', getattr(
 
 if [[ -f main.py ]]; then
   echo "Starting ${DATASET} ${MODEL} on comp055 (actual: $(hostname))"
+  export CUDA_VISIBLE_DEVICES=2
   python -u main.py "${DATASET}" "${MODEL}"
 else
   echo "ERROR: missing training script"; ls -lah; exit 2
