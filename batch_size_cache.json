@@ -27,7 +27,7 @@
   "IBM_AML_LiSmall_GIN_evaluation": 985333,
   "IBM_AML_LiSmall_GAT_evaluation": 1340928,
   "IBM_AML_LiSmall_MLP_evaluation": 1777971,
-    "IBM_AML_LiMedium_GCN_tuning": 239308,
+  "IBM_AML_LiMedium_GCN_tuning": 239308,
   "IBM_AML_LiMedium_GCN_evaluation": 244346,
   "IBM_AML_LiMedium_GIN_tuning": 800000,
   "IBM_AML_HiMedium_GCN_tuning": 350000,
@@ -42,5 +42,13 @@
   "AMLSim_RF_evaluation": 31784,
   "AMLSim_RF_tuning": 31129,
   "AMLSim_SVM_evaluation": 31784,
-  "AMLSim_SVM_tuning": 31129
+  "AMLSim_SVM_tuning": 31129,
+  "IBM_AML_HiMedium_XGB_evaluation": 31784,
+  "IBM_AML_HiMedium_XGB_tuning": 31129,
+  "IBM_AML_HiMedium_SVM_evaluation": 31784,
+  "IBM_AML_HiMedium_SVM_tuning": 31129,
+  "IBM_AML_LiMedium_XGB_evaluation": 31784,
+  "IBM_AML_LiMedium_XGB_tuning": 31129,
+  "IBM_AML_LiMedium_SVM_evaluation": 31784,
+  "IBM_AML_LiMedium_SVM_tuning": 31129
 }
