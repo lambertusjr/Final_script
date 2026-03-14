@@ -105,7 +105,7 @@ def hyperparameter_tuning(
             print(f"Starting optimization for {model_name} on {dataset_name} "
                   f"with {n_trials} trials.")
 
-        alpha_focal = balanced_class_weights(data.y)
+        alpha_focal = balanced_class_weights(data.y[masks['train_mask']])
         with tqdm(total=n_trials, initial=num_completed,
                   desc=f"{model_name} trials", leave=False, unit="trial") as trial_bar:
             def _optuna_progress_callback(study_inner, trial):
