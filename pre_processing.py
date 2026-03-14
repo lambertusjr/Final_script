@@ -795,72 +795,104 @@ class AMLSimDataset(InMemoryDataset):
 
 
     def process(self):
+        import numpy as np
+
         accounts_df = pd.read_csv(self.raw_paths[0])
         transactions_df = pd.read_csv(self.raw_paths[1])
         alerts_df = pd.read_csv(self.raw_paths[2])
-        #Getting nodes ready
-        #nodes = accounts_df[['ACCOUNT_ID', 'CUSTOMER_ID', 'INT_BALANCE']]
-        #Getting edges ready
-        edges = pd.merge(transactions_df, alerts_df, on='TX_ID', how='left')
-        edges_filtered = edges[['SENDER_ACCOUNT_ID_x', 'RECEIVER_ACCOUNT_ID_x', 'ALERT_TYPE', 'TX_AMOUNT_x', 'TIMESTAMP_x', 'IS_FRAUD_x']]
-        edges_filtered = edges_filtered.rename(columns={
+
+        # 1. Merge transactions with alerts to get fraud labels per transaction
+        txn = pd.merge(transactions_df, alerts_df, on='TX_ID', how='left')
+        txn = txn.rename(columns={
             'SENDER_ACCOUNT_ID_x': 'SENDER_ACCOUNT',
             'RECEIVER_ACCOUNT_ID_x': 'RECEIVER_ACCOUNT',
             'TX_AMOUNT_x': 'TX_AMOUNT',
             'TIMESTAMP_x': 'TIMESTAMP',
             'IS_FRAUD_x': 'IS_FRAUD'
         })
-        #One-hot encoding of ALERT_TYPE
-        #edges_filtered = pd.get_dummies(edges_filtered, columns=['ALERT_TYPE'], dtype=float)
-        
-        #Sorting by timestamp
-        edges_filtered = edges_filtered.sort_values(by='TIMESTAMP')
+        txn['IS_FRAUD'] = txn['IS_FRAUD'].fillna(0).astype(int)
 
-        #Creating edge index
-        edge_index = torch.tensor(edges_filtered[['SENDER_ACCOUNT', 'RECEIVER_ACCOUNT']].values.T, dtype=torch.long)
-        
-        #Create masks (60/20/20)
-        num_obs = len(edges_filtered)
-        train_size = int(0.6 * num_obs)
-        val_size = int(0.2 * num_obs)
-    
-        train_df = edges_filtered.iloc[:train_size].copy()
-        val_df = edges_filtered.iloc[train_size:train_size + val_size].copy()
-        test_df = edges_filtered.iloc[train_size + val_size:].copy()
+        # 2. Build account-to-index mapping (nodes = accounts)
+        all_account_ids = sorted(accounts_df['ACCOUNT_ID'].unique())
+        account_to_idx = {acc_id: idx for idx, acc_id in enumerate(all_account_ids)}
+        num_accounts = len(all_account_ids)
+        print(f"Number of account nodes: {num_accounts}")
 
-        #Normalising numerical values
+        # 3. Account-level labels: illicit if the account sent or received
+        #    any fraudulent transaction
+        fraud_senders = set(txn.loc[txn['IS_FRAUD'] == 1, 'SENDER_ACCOUNT'].unique())
+        fraud_receivers = set(txn.loc[txn['IS_FRAUD'] == 1, 'RECEIVER_ACCOUNT'].unique())
+        fraud_accounts = fraud_senders | fraud_receivers
+        y = torch.zeros(num_accounts, dtype=torch.long)
+        for acc_id in fraud_accounts:
+            if acc_id in account_to_idx:
+                y[account_to_idx[acc_id]] = 1
+        print(f"Illicit accounts: {y.sum().item()} / {num_accounts} "
+              f"({100 * y.sum().item() / num_accounts:.2f}%)")
+
+        # 4. Edge index: each transaction becomes a directed edge
+        #    sender_account -> receiver_account (mapped to node indices)
+        src = txn['SENDER_ACCOUNT'].map(account_to_idx).values
+        dst = txn['RECEIVER_ACCOUNT'].map(account_to_idx).values
+        edge_index = torch.tensor(np.stack([src, dst]), dtype=torch.long)
+        print(f"Number of edges (transactions): {edge_index.shape[1]}")
+
+        # 5. Account-level features
+        #    - INT_BALANCE from accounts.csv (direct feature, no computation)
+        #    - Aggregated transaction amounts per account (mean/total sent & received)
+        accounts_sorted = accounts_df.set_index('ACCOUNT_ID').loc[all_account_ids]
+
+        sent_agg = txn.groupby('SENDER_ACCOUNT')['TX_AMOUNT'].agg(
+            mean_amount_sent='mean', total_amount_sent='sum'
+        )
+        recv_agg = txn.groupby('RECEIVER_ACCOUNT')['TX_AMOUNT'].agg(
+            mean_amount_received='mean', total_amount_received='sum'
+        )
+
+        feat_df = pd.DataFrame({'ACCOUNT_ID': all_account_ids})
+        feat_df = feat_df.merge(
+            accounts_sorted[['INT_BALANCE']].reset_index(),
+            on='ACCOUNT_ID', how='left'
+        )
+        feat_df = feat_df.merge(sent_agg, left_on='ACCOUNT_ID', right_index=True, how='left')
+        feat_df = feat_df.merge(recv_agg, left_on='ACCOUNT_ID', right_index=True, how='left')
+        feat_df = feat_df.fillna(0)
+
+        # 6. Train/val/test split (60/20/20) on accounts
+        train_size = int(0.6 * num_accounts)
+        val_size = int(0.2 * num_accounts)
+
+        train_df = feat_df.iloc[:train_size].copy()
+        val_df = feat_df.iloc[train_size:train_size + val_size].copy()
+        test_df = feat_df.iloc[train_size + val_size:].copy()
+
+        # 7. Normalise numerical features (fit on train only)
+        num_cols = ['INT_BALANCE', 'mean_amount_sent', 'total_amount_sent',
+                    'mean_amount_received', 'total_amount_received']
         scaler = StandardScaler()
-        train_df['TX_AMOUNT'] = scaler.fit_transform(train_df[['TX_AMOUNT']])
-        val_df['TX_AMOUNT'] = scaler.transform(val_df[['TX_AMOUNT']])
-        test_df['TX_AMOUNT'] = scaler.transform(test_df[['TX_AMOUNT']])
+        train_df[num_cols] = scaler.fit_transform(train_df[num_cols])
+        val_df[num_cols] = scaler.transform(val_df[num_cols])
+        test_df[num_cols] = scaler.transform(test_df[num_cols])
 
-        edges_filtered = pd.concat([train_df, val_df, test_df])
+        feat_df = pd.concat([train_df, val_df, test_df])
+        feature_cols = [c for c in feat_df.columns if c != 'ACCOUNT_ID']
+        x = torch.tensor(feat_df[feature_cols].values, dtype=torch.float)
+        print(f"Feature matrix shape: {x.shape}  ({len(feature_cols)} features: {feature_cols})")
 
-        #Creating feature tensor
-        x = torch.tensor(edges_filtered.drop(columns=['SENDER_ACCOUNT', 'RECEIVER_ACCOUNT', 'IS_FRAUD', 'TIMESTAMP', 'ALERT_TYPE']).values, dtype=torch.float)
-        y = torch.tensor(edges_filtered['IS_FRAUD'].values, dtype=torch.long)
-        
-        
-        #Create masks (60/20/20)
-        # 8. Create Masks (60/20/20 split)
-        num_obs = len(edges_filtered)
-        mask = torch.tensor([False] * num_obs)
-        train_size = int(0.6 * num_obs)
-        val_size = int(0.2 * num_obs)
-
+        # 8. Create masks
+        mask = torch.zeros(num_accounts, dtype=torch.bool)
         train_mask = mask.clone()
         train_mask[:train_size] = True
         val_mask = mask.clone()
         val_mask[train_size:train_size + val_size] = True
         test_mask = mask.clone()
         test_mask[train_size + val_size:] = True
-        
 
-        
+        # 9. Create Data object and save
         data = Data(x=x, edge_index=edge_index, y=y)
         data.train_mask = train_mask
         data.val_mask = val_mask
         data.test_mask = test_mask
-        
-        # Save the processed data object.
+
         torch.save(self.collate([data]), self.processed_paths[0])
+        print("Processing finished. Data object saved.")
