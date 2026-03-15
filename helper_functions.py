@@ -428,8 +428,9 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     else:
         max_memory_limit = None
     
-    low = 32768  # Start higher for better GPU utilization
-    high = 30000000000 # Increase upper bound
+    num_train_nodes = int(train_mask.sum()) if train_mask.dtype == torch.bool else len(train_mask)
+    low = 16384  # Start higher for better GPU utilization
+    high = num_train_nodes  # Cap at total training nodes — larger is meaningless
     optimal = 65536 # Higher safe default
     
     from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
@@ -543,10 +544,16 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
             gc.collect()
             return False
 
+    # 0. Force a GC + cache clear before starting search so residual memory
+    #    from dataset loading doesn't cause the first batch size to fail.
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     # 1. Exponential search to find upper bound
     current = low
-    max_safe = low
-    
+    max_safe = None  # None means nothing has succeeded yet
+
     while current <= high:
         print(f"Testing batch size: {current}")
         if test_batch_size(current):
@@ -555,6 +562,17 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
         else:
             high = current
             break
+
+    # If even the smallest batch size failed, try progressively smaller sizes
+    if max_safe is None:
+        for fallback in [16384, 8192, 4096, 2048, 1024, 512]:
+            print(f"Fallback testing batch size: {fallback}")
+            if test_batch_size(fallback):
+                max_safe = fallback
+                break
+        if max_safe is None:
+            print("WARNING: All batch sizes failed. Using minimum fallback of 512.")
+            return 512
             
     # 2. Binary search between max_safe and high (which failed)
     low = max_safe

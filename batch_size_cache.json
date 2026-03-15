@@ -50,5 +50,13 @@
   "IBM_AML_LiMedium_XGB_evaluation": 31784,
   "IBM_AML_LiMedium_XGB_tuning": 31129,
   "IBM_AML_LiMedium_SVM_evaluation": 31784,
-  "IBM_AML_LiMedium_SVM_tuning": 31129
+  "IBM_AML_LiMedium_SVM_tuning": 31129,
+  "AMLSim_GCN_tuning": 31129,
+  "AMLSim_GAT_tuning": 31129,
+  "AMLSim_GIN_tuning": 15564,
+  "AMLSim_MLP_tuning": 15564,
+  "AMLSim_GCN_evaluation": 15892,
+  "AMLSim_GAT_evaluation": 15892,
+  "AMLSim_GIN_evaluation": 15892,
+  "AMLSim_MLP_evaluation": 15892
 }

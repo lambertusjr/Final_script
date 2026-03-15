@@ -838,7 +838,7 @@ class AMLSimDataset(InMemoryDataset):
         print(f"Number of edges (transactions): {edge_index.shape[1]}")
 
         # 5. Account-level features
-        #    - INT_BALANCE from accounts.csv (direct feature, no computation)
+        #    - INIT_BALANCE from accounts.csv (direct feature, no computation)
         #    - Aggregated transaction amounts per account (mean/total sent & received)
         accounts_sorted = accounts_df.set_index('ACCOUNT_ID').loc[all_account_ids]
 
@@ -851,7 +851,7 @@ class AMLSimDataset(InMemoryDataset):
 
         feat_df = pd.DataFrame({'ACCOUNT_ID': all_account_ids})
         feat_df = feat_df.merge(
-            accounts_sorted[['INT_BALANCE']].reset_index(),
+            accounts_sorted[['INIT_BALANCE']].reset_index(),
             on='ACCOUNT_ID', how='left'
         )
         feat_df = feat_df.merge(sent_agg, left_on='ACCOUNT_ID', right_index=True, how='left')
@@ -867,7 +867,7 @@ class AMLSimDataset(InMemoryDataset):
         test_df = feat_df.iloc[train_size + val_size:].copy()
 
         # 7. Normalise numerical features (fit on train only)
-        num_cols = ['INT_BALANCE', 'mean_amount_sent', 'total_amount_sent',
+        num_cols = ['INIT_BALANCE', 'mean_amount_sent', 'total_amount_sent',
                     'mean_amount_received', 'total_amount_received']
         scaler = StandardScaler()
         train_df[num_cols] = scaler.fit_transform(train_df[num_cols])
