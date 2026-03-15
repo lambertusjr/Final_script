@@ -313,7 +313,7 @@ class GCN(torch.nn.Module):
 
 #%% GAT
 class GAT(nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_units, num_heads, dropout_1=0.6, dropout_2=0.5):
+    def __init__(self, num_node_features, num_classes, hidden_units, num_heads, dropout_1=0.6, dropout_2=0.5, feature_dropout=0.5):
         super(GAT, self).__init__()
         # Keep the total latent size roughly equal to hidden_units while limiting per-head width
         per_head_dim = max(1, math.ceil(hidden_units / num_heads))
@@ -321,7 +321,7 @@ class GAT(nn.Module):
         self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1)
         self.bn1 = nn.BatchNorm1d(total_hidden)
         self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2)
-        self.feature_dropout = dropout_1
+        self.feature_dropout = feature_dropout
 
     def forward(self, data):
         x = data.x

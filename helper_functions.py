@@ -253,7 +253,12 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         num_heads = trial.suggest_int('num_heads', 1, 8)
         dropout_1 = trial.suggest_float('dropout_1', 0.0, 0.7)
         dropout_2 = trial.suggest_float('dropout_2', 0.0, 0.7)
-        return GAT(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, num_heads=num_heads, dropout_1=dropout_1, dropout_2=dropout_2)
+        # Backward compat: old trials lack feature_dropout, default to dropout_1
+        try:
+            feature_dropout = trial.suggest_float('feature_dropout', 0.0, 0.7)
+        except Exception:
+            feature_dropout = dropout_1
+        return GAT(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, num_heads=num_heads, dropout_1=dropout_1, dropout_2=dropout_2, feature_dropout=feature_dropout)
 
     elif model == 'GIN':
         from models import GIN
