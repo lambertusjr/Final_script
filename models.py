@@ -321,6 +321,7 @@ class GAT(nn.Module):
         self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1)
         self.bn1 = nn.BatchNorm1d(total_hidden)
         self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2)
+        self.feature_dropout = dropout_1
 
     def forward(self, data):
         x = data.x
@@ -328,6 +329,7 @@ class GAT(nn.Module):
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.elu(x)
+        x = F.dropout(x, p=self.feature_dropout, training=self.training)
         x = self.conv2(x, edge_index)
         return x
     
