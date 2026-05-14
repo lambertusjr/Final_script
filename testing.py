@@ -337,7 +337,6 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
         # ── 9. Tag and store run metrics ─────────────────────────────────
         run_metrics['model'] = model_name
         run_metrics['run']   = i + 1
-        detailed_metrics.append(run_metrics)
 
         save_metrics_to_pickle(
             run_metrics,

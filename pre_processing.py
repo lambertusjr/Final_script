@@ -47,8 +47,20 @@ class EllipticDataset(InMemoryDataset):
         edgelist_df['txId2'] = edgelist_df['txId2'].map(node_mapping)
         edgelist_df = edgelist_df.dropna() # Drop edges with missing nodes after mapping
         classes_df = classes_df.sort_values('txId').set_index('txId')
-        # 3. Create Tensors
-        features_tensor = torch.tensor(features_df.drop(columns=['txId']).values, dtype=torch.float)
+
+        # Keep time_step out of the feature matrix: train/val/test have disjoint
+        # timestep ranges, so using it as a feature causes distribution shift at test time.
+        time_step_series = features_df['time_step'].values
+        time_steps = torch.tensor(time_step_series, dtype=torch.long)
+
+        # 3. Build feature matrix (V1..V165) and standardize, fitting on training rows only.
+        feature_array = features_df.drop(columns=['txId', 'time_step']).values.astype('float32')
+        train_rows = time_step_series <= 30
+        scaler = StandardScaler()
+        scaler.fit(feature_array[train_rows])
+        feature_array = scaler.transform(feature_array)
+
+        features_tensor = torch.tensor(feature_array, dtype=torch.float)
         edge_index_tensor = torch.tensor(edgelist_df.values.T, dtype=torch.long)
         y_tensor = torch.tensor(classes_df['class'].values, dtype=torch.long)
 
@@ -56,7 +68,6 @@ class EllipticDataset(InMemoryDataset):
         data = Data(x=features_tensor, edge_index=edge_index_tensor, y=y_tensor)
 
         # 5. Create Masks
-        time_steps = data.x[:, 0]
         known_nodes_mask = (data.y != -1)
         
         train_mask = (time_steps >= 1) & (time_steps <= 30)

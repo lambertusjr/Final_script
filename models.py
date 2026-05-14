@@ -249,10 +249,15 @@ class ModelWrapper:
 
             pred = out_sliced.argmax(dim=1)
 
-            f1_metric = BinaryF1Score().to(device)
-            f1_illicit = f1_metric(pred, y_sliced).item()
+            f1_illicit = f1_score(
+                y_sliced.cpu().numpy(),
+                pred.cpu().numpy(),
+                pos_label=1,
+                average='binary',
+                zero_division=0,
+            )
 
-        return float(loss.detach()), f1_illicit
+        return float(loss.detach()), float(f1_illicit)
 
     # Bug 12 fix: lightweight validation method for loader-based training (used by train_and_validate_with_loader)
     def evaluate_loader_mini(self, loader):
