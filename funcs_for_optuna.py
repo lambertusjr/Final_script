@@ -51,7 +51,7 @@ def hyperparameter_tuning(
 
     for model_name in tqdm(models, desc="Models", unit="model"):
         if model_name in wrapper_models:
-            n_trials = 100
+            n_trials = 200
         else:
             n_trials = 100
         study_name = f'{model_name}_optimization on {dataset_name} dataset'
