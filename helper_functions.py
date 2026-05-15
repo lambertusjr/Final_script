@@ -1,13 +1,11 @@
 import torch
 import numpy as np
 from torchmetrics.classification import BinaryPrecisionRecallCurve
-from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score, precision_score, recall_score, roc_auc_score, auc
-from torchmetrics.classification import BinaryAveragePrecision
+from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score, precision_score, recall_score, roc_auc_score, auc, average_precision_score
 import matplotlib.pyplot as plt
 import pickle
 import os
 import optuna
-metric = BinaryAveragePrecision().to('cuda') if torch.cuda.is_available() else BinaryAveragePrecision()
 
 from xgboost import XGBClassifier
 from sklearn.linear_model import SGDClassifier
@@ -245,7 +243,9 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
         from models import GCN
         hidden_units = trial.suggest_int('hidden_units', 32, 256)
         dropout = trial.suggest_float('dropout', 0.0, 0.7)
-        return GCN(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, dropout=dropout)
+        n_layers = trial.suggest_int('n_layers', 1, 3)
+        return GCN(num_node_features=data.x.shape[1], num_classes=2,
+                   hidden_units=hidden_units, dropout=dropout, n_layers=n_layers)
 
     elif model == 'GAT':
         from models import GAT
@@ -258,13 +258,19 @@ def _get_model_instance(trial, model, data, device, train_mask=None):
             feature_dropout = trial.suggest_float('feature_dropout', 0.0, 0.7)
         except Exception:
             feature_dropout = dropout_1
-        return GAT(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, num_heads=num_heads, dropout_1=dropout_1, dropout_2=dropout_2, feature_dropout=feature_dropout)
+        n_layers = trial.suggest_int('n_layers', 1, 3)
+        return GAT(num_node_features=data.x.shape[1], num_classes=2,
+                   hidden_units=hidden_units, num_heads=num_heads,
+                   dropout_1=dropout_1, dropout_2=dropout_2,
+                   feature_dropout=feature_dropout, n_layers=n_layers)
 
     elif model == 'GIN':
         from models import GIN
         hidden_units = trial.suggest_int('hidden_units', 32, 256)
         dropout = trial.suggest_float('dropout', 0.0, 0.5)
-        return GIN(num_node_features=data.x.shape[1], num_classes=2, hidden_units=hidden_units, dropout=dropout)
+        n_layers = trial.suggest_int('n_layers', 1, 3)
+        return GIN(num_node_features=data.x.shape[1], num_classes=2,
+                   hidden_units=hidden_units, dropout=dropout, n_layers=n_layers)
 
     else:
         raise ValueError(f"Unknown model: {model}")
