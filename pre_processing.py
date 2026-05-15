@@ -61,7 +61,10 @@ class EllipticDataset(InMemoryDataset):
         feature_array = scaler.transform(feature_array)
 
         features_tensor = torch.tensor(feature_array, dtype=torch.float)
-        edge_index_tensor = torch.tensor(edgelist_df.values.T, dtype=torch.long)
+        edge_index_directed = torch.tensor(edgelist_df.values.T, dtype=torch.long)
+        edge_index_tensor = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
         y_tensor = torch.tensor(classes_df['class'].values, dtype=torch.long)
 
         # 4. Create Data Object
@@ -241,7 +244,10 @@ class IBMAMLDataset_HiSmall(InMemoryDataset):
         
         # Get edge_index
         # The txId in df_edges already corresponds to the 0..N-1 index
-        edge_index = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index_directed = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -411,7 +417,10 @@ class IBMAMLDataset_LiSmall(InMemoryDataset):
         
         # Get edge_index
         # The txId in df_edges already corresponds to the 0..N-1 index
-        edge_index = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index_directed = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -583,7 +592,10 @@ class IBMAMLDataset_LiMedium(InMemoryDataset):
         
         # Get edge_index
         # The txId in df_edges already corresponds to the 0..N-1 index
-        edge_index = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index_directed = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -756,7 +768,10 @@ class IBMAMLDataset_HiMedium(InMemoryDataset):
         
         # Get edge_index
         # The txId in df_edges already corresponds to the 0..N-1 index
-        edge_index = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index_directed = torch.tensor(df_edges[['txId1', 'txId2']].values, dtype=torch.long).t().contiguous()
+        edge_index = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -845,7 +860,10 @@ class AMLSimDataset(InMemoryDataset):
         #    sender_account -> receiver_account (mapped to node indices)
         src = txn['SENDER_ACCOUNT'].map(account_to_idx).values
         dst = txn['RECEIVER_ACCOUNT'].map(account_to_idx).values
-        edge_index = torch.tensor(np.stack([src, dst]), dtype=torch.long)
+        edge_index_directed = torch.tensor(np.stack([src, dst]), dtype=torch.long)
+        edge_index = torch.cat(
+            [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
         print(f"Number of edges (transactions): {edge_index.shape[1]}")
 
         # 5. Account-level features

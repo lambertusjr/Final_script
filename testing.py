@@ -141,33 +141,34 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             )
         print(f"  > Using TUNING batch size {tuning_batch_size} for {model_name}")
 
+        # Final-fit trains on train ∪ val; val_loader is intentionally None so the
+        # training loop skips per-epoch validation (matches B-Deprez's protocol).
+        combined_train_mask = train_mask | val_mask
         train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
-                                      batch_size=tuning_batch_size, input_nodes=train_mask)
-        val_loader   = NeighborLoader(data, num_neighbors=num_neighbors,
-                                      batch_size=eval_batch_size, input_nodes=val_mask)
+                                      batch_size=tuning_batch_size, input_nodes=combined_train_mask)
+        val_loader   = None
         test_loader  = NeighborLoader(data, num_neighbors=num_neighbors,
                                       batch_size=eval_batch_size, input_nodes=test_mask)
     else:
         print(f"  > Using FULL BATCH for {model_name} on {dataset_name} (no NeighborLoader)")
 
     # ── 5. Prepare masks dict for train_and_validate (full-batch) ────────
-    #    train_and_validate expects a dict with specific keys.
-    #    For Elliptic it looks up 'train_mask', 'train_perf_mask', 'val_mask', 'val_perf_mask'.
-    #    For other full-batch datasets it uses 'train_mask' and 'val_mask'.
+    #    For the final-test fit we train on train ∪ val and pass val_mask=None
+    #    so the training loop skips per-epoch checkpointing (B-Deprez style).
     if not use_loader and model_name in wrapper_models:
         if is_elliptic:
-            # train_and_validate reads: masks['train_mask'], masks['train_perf_mask'],
-            #                           masks['val_mask'],   masks['val_perf_mask']
+            combined_train_mask = masks['train_mask'] | masks['val_mask']
+            combined_train_perf_mask = masks['train_perf_eval_mask'] | masks['val_perf_eval_mask']
             training_masks_dict = {
-                'train_mask':      masks['train_mask'],
-                'train_perf_eval_mask': masks['train_perf_eval_mask'],
-                'val_mask':        masks['val_mask'],
-                'val_perf_eval_mask':   masks['val_perf_eval_mask'],
+                'train_mask': combined_train_mask,
+                'train_perf_eval_mask': combined_train_perf_mask,
+                'val_mask': None,
+                'val_perf_eval_mask': None,
             }
         else:
             training_masks_dict = {
-                'train_mask': masks['train_mask'],
-                'val_mask':   masks['val_mask'],
+                'train_mask': masks['train_mask'] | masks['val_mask'],
+                'val_mask': None,
             }
 
     # ── 6. Adjust n_runs for RF ──────────────────────────────────────────
@@ -196,8 +197,6 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             learning_rate = best_params.get('learning_rate', 0.01)
             weight_decay  = best_params.get('weight_decay', 5e-4)
             gamma_focal   = best_params.get('gamma_focal', 2.0)
-            patience      = best_params.get('early_stop_patience', 20)
-            min_delta     = best_params.get('early_stop_min_delta', 1e-3)
 
             criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
             optimiser = torch.optim.Adam(model_instance.parameters(),
@@ -206,23 +205,21 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
             model_wrapper.model.to(device)
 
-            num_epochs = 200 if model_name == "MLP" else 150
+            # Use the tuned n_epochs (5–500). Fallback for any pre-migration study.
+            num_epochs = best_params.get('n_epochs', 200 if model_name == "MLP" else 150)
 
-            # ── TRAIN ────────────────────────────────────────────────────
+            # ── TRAIN (no per-epoch validation: val_loader/val_mask is None) ─
             if use_loader:
                 best_wts, _ = train_and_validate_with_loader(
-                    model_wrapper, train_loader, val_loader,
-                    num_epochs,
-                    patience=patience, min_delta=min_delta, log_early_stop=False
+                    model_wrapper, train_loader, val_loader, num_epochs
                 )
             else:
                 best_wts, _ = train_and_validate(
                     model_wrapper, data, training_masks_dict,
-                    num_epochs, dataset_name,
-                    patience=patience, min_delta=min_delta, log_early_stop=False
+                    num_epochs, dataset_name
                 )
 
-            # Load best weights found during training
+            # Load trained weights (final-epoch weights since val is None)
             model_wrapper.model.load_state_dict(best_wts)
 
             # ── EVALUATE ─────────────────────────────────────────────────

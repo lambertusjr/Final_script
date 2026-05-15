@@ -17,20 +17,6 @@ from datetime import datetime
 from torch_geometric.loader import NeighborLoader
 
 
-DEFAULT_EARLY_STOP = {
-    "patience": 20,
-    "min_delta": 1e-3,
-}
-EARLY_STOP_LOGGING = False
-
-def _early_stop_args_from(source: dict) -> dict:
-    """Build early stopping kwargs, falling back to defaults when keys are absent."""
-    return {
-        "patience": source.get("early_stop_patience", DEFAULT_EARLY_STOP["patience"]),
-        "min_delta": source.get("early_stop_min_delta", DEFAULT_EARLY_STOP["min_delta"]),
-        "log_early_stop": EARLY_STOP_LOGGING,
-    }
-
 def hyperparameter_tuning(
         models,
         dataset_name,
@@ -121,7 +107,7 @@ def hyperparameter_tuning(
                 callbacks=[_optuna_progress_callback]
             )
         model_parameters[model_name].append(study.best_params)
-        print(f"Best F1-illicit for {model_name} on {dataset_name}: {study.best_value:.4f}")
+        print(f"Best val PR-AUC for {model_name} on {dataset_name}: {study.best_value:.4f}")
 
     return model_parameters
 
@@ -141,12 +127,7 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         learning_rate = trial.suggest_float('learning_rate', 1e-4, 5e-2, log=True)
         weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
         gamma_focal = trial.suggest_float('gamma_focal', 0.1, 5.0)
-        early_stop_patience = trial.suggest_int('early_stop_patience', 5, 40)
-        early_stop_min_delta = trial.suggest_float('early_stop_min_delta', 1e-4, 5e-3, log=True)
-        trial_early_stop_args = _early_stop_args_from({
-            "early_stop_patience": early_stop_patience,
-            "early_stop_min_delta": early_stop_min_delta
-        })
+        n_epochs = trial.suggest_int('n_epochs', 5, 500)
 
         # Use pre-calculated alpha_focal if provided, else calculate (fallback)
         if alpha_focal is None:
@@ -157,8 +138,6 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
             raise ValueError(f"alpha_focal should have 2 elements for binary classification, got {alpha_focal.shape[0]}")
 
         criterion = FocalLoss(alpha=alpha_focal, gamma=gamma_focal, reduction='mean')
-
-        num_epochs = 200 if model == "MLP" else 400  # GNNs get 400, MLP gets 200
 
         # Bug 14 fix: train_and_validate expects a dict (calls .items()), not a list
         if dataset_name == "Elliptic":
@@ -186,17 +165,17 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
                                           batch_size=batch_size, input_nodes=train_mask, shuffle=True)
             val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                         batch_size=batch_size, input_nodes=masks['val_mask'])
-            best_f1_model_wts, best_f1 = train_and_validate_with_loader(
-                model_wrapper, train_loader, val_loader, num_epochs, **trial_early_stop_args
+            _best_wts, best_pr_auc = train_and_validate_with_loader(
+                model_wrapper, train_loader, val_loader, n_epochs
             )
         elif dataset_name in full_batch_datasets:
-            best_f1_model_wts, best_f1 = train_and_validate(
-                model_wrapper, data, train_val_masks, num_epochs, dataset_name, **trial_early_stop_args
+            _best_wts, best_pr_auc = train_and_validate(
+                model_wrapper, data, train_val_masks, n_epochs, dataset_name
             )
         else:
             raise ValueError(f"Unsupported dataset for wrapper model tuning: {dataset_name}")
 
-        return best_f1
+        return best_pr_auc
 
     elif model in sklearn_models:
         gpu_enabled_models = []
@@ -219,10 +198,25 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
             val_y = data.y[val_mask].cpu().numpy()
 
         model_instance.fit(train_x, train_y)
-        pred = model_instance.predict(val_x)
-        # Bug 16 fix: BinaryF1Score crashes on numpy arrays (no .device); use sklearn f1_score instead
-        f1_illicit = f1_score(val_y, pred, pos_label=1, average='binary')
-        return float(f1_illicit)
+
+        # Use predicted positive-class probabilities (or scaled decision function for SVM)
+        # to compute PR-AUC as the unified Optuna objective.
+        if hasattr(model_instance, 'predict_proba'):
+            val_scores = model_instance.predict_proba(val_x)[:, 1]
+        elif hasattr(model_instance, 'decision_function'):
+            dfunc = model_instance.decision_function(val_x)
+            denom = (dfunc.max() - dfunc.min())
+            val_scores = (dfunc - dfunc.min()) / denom if denom > 0 else np.zeros_like(dfunc)
+        else:
+            # Fall back to hard predictions if no probabilistic output is available.
+            val_scores = model_instance.predict(val_x)
+
+        from sklearn.metrics import average_precision_score
+        val_y_np = val_y.cpu().numpy() if hasattr(val_y, 'cpu') else np.asarray(val_y)
+        if len(np.unique(val_y_np)) < 2:
+            return 0.0
+        pr_auc = average_precision_score(val_y_np, val_scores)
+        return float(pr_auc)
 
     else:
         raise ValueError(f"Unknown model type: {model}")

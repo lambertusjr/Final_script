@@ -2,11 +2,21 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv, GINConv
+from torch_geometric.nn import GCNConv, GATv2Conv, GINConv
+from torch_geometric.nn.norm import GraphNorm
 # Bug 2 fix: ensure calculate_metrics is imported (was commented out)
 from helper_functions import calculate_metrics
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, average_precision_score
 from torchmetrics.classification import BinaryF1Score
+
+def _safe_average_precision(y_true, y_score):
+    # average_precision_score raises if only one class is present in y_true.
+    # Return 0.0 in that degenerate case so the metric remains comparable.
+    import numpy as np
+    if len(np.unique(y_true)) < 2:
+        return 0.0
+    return float(average_precision_score(y_true, y_score))
+
 
 #%% Modelwrapper
 
@@ -147,7 +157,10 @@ class ModelWrapper:
             f1_metric = BinaryF1Score().to(device)
             f1_illicit = f1_metric(pred, y_sliced).item()
 
-        return float(loss.detach()), f1_illicit
+            probs = torch.softmax(out_sliced, dim=1)[:, 1]
+            pr_auc = _safe_average_precision(y_sliced.cpu().numpy(), probs.cpu().numpy())
+
+        return float(loss.detach()), f1_illicit, pr_auc
 
 
     def evaluate_full(self, data, mask):
@@ -249,21 +262,26 @@ class ModelWrapper:
 
             pred = out_sliced.argmax(dim=1)
 
+            y_true_np = y_sliced.cpu().numpy()
+            pred_np = pred.cpu().numpy()
+            probs_np = torch.softmax(out_sliced, dim=1)[:, 1].cpu().numpy()
+
             f1_illicit = f1_score(
-                y_sliced.cpu().numpy(),
-                pred.cpu().numpy(),
+                y_true_np,
+                pred_np,
                 pos_label=1,
                 average='binary',
                 zero_division=0,
             )
+            pr_auc = _safe_average_precision(y_true_np, probs_np)
 
-        return float(loss.detach()), float(f1_illicit)
+        return float(loss.detach()), float(f1_illicit), float(pr_auc)
 
     # Bug 12 fix: lightweight validation method for loader-based training (used by train_and_validate_with_loader)
     def evaluate_loader_mini(self, loader):
         self.model.eval()
         device = next(self.model.parameters()).device
-        all_preds, all_labels = [], []
+        all_preds, all_probs, all_labels = [], [], []
         total_loss = 0
 
         with torch.no_grad():
@@ -278,97 +296,149 @@ class ModelWrapper:
                 total_loss += float(loss.detach())
 
                 pred = out_sliced.argmax(dim=1)
+                probs = torch.softmax(out_sliced, dim=1)[:, 1]
                 all_preds.append(pred.cpu())
+                all_probs.append(probs.cpu())
                 all_labels.append(y_sliced.cpu())
 
-                del batch, out, out_sliced, y_sliced, loss, pred
+                del batch, out, out_sliced, y_sliced, loss, pred, probs
 
         y_true = torch.cat(all_labels).numpy()
         y_pred = torch.cat(all_preds).numpy()
+        y_prob = torch.cat(all_probs).numpy()
         f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary')
+        pr_auc = _safe_average_precision(y_true, y_prob)
 
-        return total_loss / len(loader), f1_illicit
+        return total_loss / len(loader), f1_illicit, pr_auc
 
 #%% GCN
 class GCN(torch.nn.Module):
     """
-    A simple Graph Convolutional Network model.
+    Graph Convolutional Network with tunable depth (n_layers in [1, 3]).
+    n_layers=1 collapses to a single GCNConv(in, num_classes).
     """
-    def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.5):
+    def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.5, n_layers=2):
         super(GCN, self).__init__()
-        self.conv1 = GCNConv(num_node_features, hidden_units)
-        self.bn1 = nn.BatchNorm1d(hidden_units)
-        self.conv2 = GCNConv(hidden_units, num_classes)
+        if n_layers < 1:
+            raise ValueError(f"n_layers must be >= 1, got {n_layers}")
+        self.n_layers = n_layers
         self.dropout = dropout
 
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+
+        if n_layers == 1:
+            self.convs.append(GCNConv(num_node_features, num_classes))
+        else:
+            self.convs.append(GCNConv(num_node_features, hidden_units))
+            self.norms.append(GraphNorm(hidden_units))
+            for _ in range(n_layers - 2):
+                self.convs.append(GCNConv(hidden_units, hidden_units))
+                self.norms.append(GraphNorm(hidden_units))
+            self.convs.append(GCNConv(hidden_units, num_classes))
+
     def forward(self, data):
-        # x: Node features [num_nodes, in_channels]
-        # edge_index: Graph connectivity [2, num_edges]
         x = data.x
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
 
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-
-        # Output raw logits
-        x = self.conv2(x, edge_index)
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index)
+            if i < len(self.norms):
+                x = self.norms[i](x)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
         return x
 
 #%% GAT
 class GAT(nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_units, num_heads, dropout_1=0.6, dropout_2=0.5, feature_dropout=0.5):
+    """
+    Graph Attention Network (GATv2) with tunable depth (n_layers in [1, 3]).
+    n_layers=1 collapses to a single GATv2Conv(in, num_classes, heads=1, concat=False).
+    """
+    def __init__(self, num_node_features, num_classes, hidden_units, num_heads,
+                 dropout_1=0.6, dropout_2=0.5, feature_dropout=0.5, n_layers=2):
         super(GAT, self).__init__()
-        # Keep the total latent size roughly equal to hidden_units while limiting per-head width
+        if n_layers < 1:
+            raise ValueError(f"n_layers must be >= 1, got {n_layers}")
+        self.n_layers = n_layers
+        self.feature_dropout = feature_dropout
+
         per_head_dim = max(1, math.ceil(hidden_units / num_heads))
         total_hidden = per_head_dim * num_heads
-        self.conv1 = GATConv(num_node_features, per_head_dim, heads=num_heads, dropout=dropout_1)
-        self.bn1 = nn.BatchNorm1d(total_hidden)
-        self.conv2 = GATConv(total_hidden, num_classes, heads=1, concat=False, dropout=dropout_2)
-        self.feature_dropout = feature_dropout
+
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+
+        if n_layers == 1:
+            self.convs.append(
+                GATv2Conv(num_node_features, num_classes,
+                          heads=1, concat=False, dropout=dropout_2)
+            )
+        else:
+            self.convs.append(
+                GATv2Conv(num_node_features, per_head_dim,
+                          heads=num_heads, dropout=dropout_1)
+            )
+            self.norms.append(GraphNorm(total_hidden))
+            for _ in range(n_layers - 2):
+                self.convs.append(
+                    GATv2Conv(total_hidden, per_head_dim,
+                              heads=num_heads, dropout=dropout_1)
+                )
+                self.norms.append(GraphNorm(total_hidden))
+            self.convs.append(
+                GATv2Conv(total_hidden, num_classes,
+                          heads=1, concat=False, dropout=dropout_2)
+            )
 
     def forward(self, data):
         x = data.x
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = F.elu(x)
-        x = F.dropout(x, p=self.feature_dropout, training=self.training)
-        x = self.conv2(x, edge_index)
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index)
+            if i < len(self.norms):
+                x = self.norms[i](x)
+                x = F.elu(x)
+                x = F.dropout(x, p=self.feature_dropout, training=self.training)
         return x
     
 #%% GIN
 class GIN(nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.0):
+    """
+    Graph Isomorphism Network with tunable depth (n_layers in [1, 3]).
+    BatchNorm1d is kept inside the per-layer MLPs (standard GIN convention);
+    a GraphNorm is applied to the final embedding before the linear head.
+    """
+    def __init__(self, num_node_features, num_classes, hidden_units, dropout=0.0, n_layers=2):
         super(GIN, self).__init__()
-        nn1 = nn.Sequential(
-            nn.Linear(num_node_features, hidden_units),
-            nn.BatchNorm1d(hidden_units),
-            nn.ReLU(),
-            nn.Linear(hidden_units, hidden_units)
-        )
-        self.conv1 = GINConv(nn1, train_eps=True)
-
-        nn2 = nn.Sequential(
-            nn.Linear(hidden_units, hidden_units),
-            nn.BatchNorm1d(hidden_units),
-            nn.ReLU(),
-            nn.Linear(hidden_units, hidden_units)
-        )
-        self.conv2 = GINConv(nn2, train_eps=True)
-        self.bn2 = nn.BatchNorm1d(hidden_units)
-        self.fc = nn.Linear(hidden_units, num_classes)
+        if n_layers < 1:
+            raise ValueError(f"n_layers must be >= 1, got {n_layers}")
+        self.n_layers = n_layers
         self.dropout = dropout
+
+        self.convs = nn.ModuleList()
+        for layer_idx in range(n_layers):
+            in_dim = num_node_features if layer_idx == 0 else hidden_units
+            mlp = nn.Sequential(
+                nn.Linear(in_dim, hidden_units),
+                nn.BatchNorm1d(hidden_units),
+                nn.ReLU(),
+                nn.Linear(hidden_units, hidden_units),
+            )
+            self.convs.append(GINConv(mlp, train_eps=True))
+
+        self.norm = GraphNorm(hidden_units)
+        self.fc = nn.Linear(hidden_units, num_classes)
 
     def forward(self, data):
         x = data.x
         edge_index = data.adj_t if hasattr(data, 'adj_t') else data.edge_index
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index)
+            if i < len(self.convs) - 1:
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.norm(x)
         x = F.relu(x)
         x = self.fc(x)
         return x
