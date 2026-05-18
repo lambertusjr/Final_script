@@ -16,6 +16,8 @@ from utilities import FocalLoss, set_seed, load_batch_size_by_phase
 from models import ModelWrapper
 from torch_geometric.loader import NeighborLoader
 
+JOB_ID = os.environ.get("JOB_ID") or f"local-{os.getpid()}"
+
 
 def run_final_evaluation(models, model_parameters, data, data_for_optimisation, masks):
     """
@@ -314,7 +316,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             precision, recall, thresholds = calculate_pr_metrics_batched(
                 y_probs_tensor, y_true_tensor)
 
-            pr_filename = f"results/{dataset_name}/pr_curves/{model_name}_run_{i+1}"
+            pr_filename = f"results/{dataset_name}/pr_curves/{model_name}_run_{i+1}_{JOB_ID}"
             pr_auc = save_pr_artifacts(precision, recall, thresholds, pr_filename)
             run_metrics['PRAUC'] = pr_auc
 
@@ -328,7 +330,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             }
             save_metrics_to_pickle(
                 pr_data,
-                f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_pr_data.pkl"
+                f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_pr_data_{JOB_ID}.pkl"
             )
 
         # ── 9. Tag and store run metrics ─────────────────────────────────
@@ -337,7 +339,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
 
         save_metrics_to_pickle(
             run_metrics,
-            f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_metrics.pkl"
+            f"results/{dataset_name}/pkl_files/{model_name}_run_{i+1}_metrics_{JOB_ID}.pkl"
         )
         # CREATE A LIGHTWEIGHT COPY for the DataFrame
         # Remove heavy tensors (probs, preds, y_true) before appending to the list
@@ -365,8 +367,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     # ── 11. AGGREGATE & SAVE ─────────────────────────────────────────────
     # ══════════════════════════════════════════════════════════════════════
     df = pd.DataFrame(detailed_metrics)
-    df.to_csv(f"results/{dataset_name}/metrics/{model_name}_detailed_metrics.csv", index=True)
-    save_dataframe_to_pickle(df, f"results/{dataset_name}/pkl_files/{model_name}_detailed_metrics.pkl")
+    save_dataframe_to_pickle(df, f"results/{dataset_name}/pkl_files/{model_name}_detailed_metrics_{JOB_ID}.pkl")
 
     columns_to_drop = {'model', 'run', 'probs', 'preds', 'y_true'}
     numeric_df = df.drop(columns=[col for col in columns_to_drop if col in df.columns],
@@ -374,11 +375,6 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     summary = numeric_df.agg(['mean', 'std']).transpose()
     summary['model'] = model_name
 
-    save_dataframe_to_pickle(summary, f"results/{dataset_name}/pkl_files/{model_name}_summary_metrics.pkl")
+    save_dataframe_to_pickle(summary, f"results/{dataset_name}/pkl_files/{model_name}_summary_metrics_{JOB_ID}.pkl")
 
-    summary_file = f"results/{dataset_name}/metrics/summary_metrics.csv"
-    summary.to_csv(summary_file,
-                   mode='a' if os.path.exists(summary_file) else 'w',
-                   header=not os.path.exists(summary_file))
-
-    print(f"  > Completed {model_name}. Metrics saved to results/{dataset_name}/metrics/")
+    print(f"  > Completed {model_name}. Pickled metrics saved to results/{dataset_name}/pkl_files/ (JOB_ID={JOB_ID})")

@@ -1,0 +1,46 @@
+# Manifest for ./launch.sh -f jobs.txt
+#
+# Format: DATASET   MODEL   NODE:GPU       (or:  DATASET MODEL NODE GPU)
+# NODE is the numeric suffix; submit_RP.sh maps it to host=comp0${NODE}.
+# Blank lines and lines starting with '#' are ignored.
+#
+# Edit per re-run campaign: comment out combos already done, rebalance
+# the NODE:GPU column to spread load across whichever compute nodes are free.
+#
+# Layout below puts one model per node, one dataset per GPU on that node
+# (3 datasets * 7 models = 21 combos). Adjust freely.
+
+# --- GCN on comp055 ---
+AMLSim                   GCN    55:0
+IBM_AML_HiMedium         GCN    55:1
+IBM_AML_LiMedium         GCN    55:2
+
+# --- GAT on comp056 ---
+AMLSim                   GAT    56:0
+IBM_AML_HiMedium         GAT    56:1
+IBM_AML_LiMedium         GAT    56:2
+
+# --- GIN on comp057 ---
+AMLSim                   GIN    57:0
+IBM_AML_HiMedium         GIN    57:1
+IBM_AML_LiMedium         GIN    57:2
+
+# --- MLP on comp058 ---
+AMLSim                   MLP    58:0
+IBM_AML_HiMedium         MLP    58:1
+IBM_AML_LiMedium         MLP    58:2
+
+# --- XGB on comp059 ---
+AMLSim                   XGB    59:0
+IBM_AML_HiMedium         XGB    59:1
+IBM_AML_LiMedium         XGB    59:2
+
+# --- RF on comp060 ---
+AMLSim                   RF     60:0
+IBM_AML_HiMedium         RF     60:1
+IBM_AML_LiMedium         RF     60:2
+
+# --- SVM on comp061 ---
+AMLSim                   SVM    61:0
+IBM_AML_HiMedium         SVM    61:1
+IBM_AML_LiMedium         SVM    61:2
