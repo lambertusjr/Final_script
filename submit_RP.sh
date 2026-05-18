@@ -7,11 +7,17 @@
 #PBS -M 23724617@sun.ac.za
 #PBS -V
 
-# Usage: qsub -F "AMLSim GAT 56 0" submit_RP.sh    # DATASET MODEL NODE GPU
-DATASET="${1:?Usage: qsub -F \"DATASET MODEL NODE GPU\" submit_RP.sh}"
-MODEL="${2:?Usage: qsub -F \"DATASET MODEL NODE GPU\" submit_RP.sh}"
-NODE="${3:?Usage: qsub -F \"DATASET MODEL NODE GPU\" submit_RP.sh}"
-GPU="${4:?Usage: qsub -F \"DATASET MODEL NODE GPU\" submit_RP.sh}"
+# PBS Pro doesn't support -F (script args). Pass via -v at qsub time instead.
+# Usage:
+#   qsub -N "AMLSim_GCN" \
+#        -l "select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056" \
+#        -v "DATASET=AMLSim,MODEL=GCN,NODE=56,GPU=0" \
+#        submit_RP.sh
+# (launch.sh builds this for you.)
+: "${DATASET:?DATASET env var required (pass via qsub -v ...)}"
+: "${MODEL:?MODEL env var required (pass via qsub -v ...)}"
+: "${NODE:?NODE env var required (pass via qsub -v ...)}"
+: "${GPU:?GPU env var required (pass via qsub -v ...)}"
 
 # Pin to a specific GPU index on the chosen node.
 export CUDA_VISIBLE_DEVICES="${GPU}"
@@ -20,10 +26,6 @@ export CUDA_VISIBLE_DEVICES="${GPU}"
 # each other on rsync push. Dots in PBS_JOBID confuse os.path.splitext.
 export JOB_ID="${PBS_JOBID//./-}"
 
-# PBS directives are parsed before $1/$2/$3 are available, so set the job name
-# and node at runtime manually.
-qalter -N "${DATASET}_${MODEL}" "${PBS_JOBID}" 2>/dev/null || true
-qalter -l "select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp0${NODE}" "${PBS_JOBID}" 2>/dev/null || true
 LOGFILE="${PBS_O_WORKDIR}/output_${DATASET}_${MODEL}_gpu${GPU}.out"
 exec > "${LOGFILE}" 2>&1
 
