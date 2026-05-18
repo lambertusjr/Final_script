@@ -125,17 +125,27 @@ def cuda_context_healthy():
         return False
 
 
-def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning', cache_file='batch_size_cache.json'):
+def _cache_path(dataset_name, model_name):
+    """Per-combo cache filename. Avoids lost-update races when rsyncing from
+    multiple compute nodes back to the main node (one file per combo, like the
+    Optuna DBs)."""
+    return f'batch_size_cache_{dataset_name}_{model_name}.json'
+
+
+def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning', cache_file=None):
     """
     Save optimal batch size for a dataset-model combination with phase distinction.
-    
+
     Args:
         dataset_name: Name of the dataset
         model_name: Name of the model
         batch_size: Optimal batch size found
         phase: 'tuning' for hyperparameter tuning or 'evaluation' for final evaluation
-        cache_file: Path to the cache file
+        cache_file: Path to the cache file (defaults to per-combo file)
     """
+    if cache_file is None:
+        cache_file = _cache_path(dataset_name, model_name)
+
     cache = {}
     if os.path.exists(cache_file):
         try:
@@ -143,45 +153,48 @@ def save_batch_size_by_phase(dataset_name, model_name, batch_size, phase='tuning
                 cache = json.load(f)
         except (json.JSONDecodeError, IOError):
             print(f"Warning: Could not read {cache_file}, creating new cache")
-    
+
     key = f"{dataset_name}_{model_name}_{phase}"
     cache[key] = batch_size
-    
+
     with open(cache_file, 'w') as f:
         json.dump(cache, f, indent=2)
-    
+
     print(f"Saved {phase} batch size {batch_size} for {dataset_name}_{model_name}")
 
 
-def load_batch_size_by_phase(dataset_name, model_name, phase='tuning', cache_file='batch_size_cache.json'):
+def load_batch_size_by_phase(dataset_name, model_name, phase='tuning', cache_file=None):
     """
     Load cached batch size for a dataset-model combination with phase distinction.
-    
+
     Args:
         dataset_name: Name of the dataset
         model_name: Name of the model
         phase: 'tuning' for hyperparameter tuning or 'evaluation' for final evaluation
-        cache_file: Path to the cache file
-        
+        cache_file: Path to the cache file (defaults to per-combo file)
+
     Returns:
         int or None: Cached batch size if found, None otherwise
     """
+    if cache_file is None:
+        cache_file = _cache_path(dataset_name, model_name)
+
     if not os.path.exists(cache_file):
         return None
-    
+
     try:
         with open(cache_file, 'r') as f:
             cache = json.load(f)
-        
+
         key = f"{dataset_name}_{model_name}_{phase}"
         batch_size = cache.get(key)
-        
+
         if batch_size is not None:
             print(f"Loaded cached {phase} batch size {batch_size} for {dataset_name}_{model_name}")
             return batch_size
     except (json.JSONDecodeError, IOError) as e:
         print(f"Warning: Could not load from {cache_file}: {e}")
-    
+
     return None
 
 

@@ -1,41 +1,40 @@
-# qsub Commands
+# Submitting jobs
 
-Each dataset–model combination has its own dedicated `.sh` script.
+All jobs go through the single templated script `submit_RP.sh`, fired via the `./launch.sh` helper.
 
-Usage: `qsub submit_DATASET_MODEL.sh`
-
-## AMLSim
+## One-time setup (run once on the main node before the first batched re-run)
 
 ```bash
-qsub submit_AMLSim_GCN.sh
-qsub submit_AMLSim_GAT.sh
-qsub submit_AMLSim_GIN.sh
-qsub submit_AMLSim_MLP.sh
-qsub submit_AMLSim_XGB.sh
-qsub submit_AMLSim_RF.sh
-qsub submit_AMLSim_SVM.sh
+python3 split_batch_size_cache.py   # fans the combined cache into per-combo files
 ```
 
-## IBM AML HiMedium
+## Single job
 
 ```bash
-qsub submit_IBM_AML_HiMedium_GCN.sh
-qsub submit_IBM_AML_HiMedium_GAT.sh
-qsub submit_IBM_AML_HiMedium_GIN.sh
-qsub submit_IBM_AML_HiMedium_MLP.sh
-qsub submit_IBM_AML_HiMedium_XGB.sh
-qsub submit_IBM_AML_HiMedium_RF.sh
-qsub submit_IBM_AML_HiMedium_SVM.sh
+./launch.sh DATASET MODEL NODE GPU      # e.g. ./launch.sh AMLSim GCN 55 0
+./launch.sh DATASET MODEL NODE:GPU      # compact form, e.g. ./launch.sh AMLSim GCN 55:0
 ```
 
-## IBM AML LiMedium
+`NODE` is the numeric suffix only; `submit_RP.sh` maps it to `host=comp0${NODE}`. `GPU` is the device index pinned via `CUDA_VISIBLE_DEVICES`.
+
+## Batch from manifest
+
+Edit `jobs.txt` (one `DATASET MODEL NODE:GPU` per line, `#` comments allowed) and run:
 
 ```bash
-qsub submit_IBM_AML_LiMedium_GCN.sh
-qsub submit_IBM_AML_LiMedium_GAT.sh
-qsub submit_IBM_AML_LiMedium_GIN.sh
-qsub submit_IBM_AML_LiMedium_MLP.sh
-qsub submit_IBM_AML_LiMedium_XGB.sh
-qsub submit_IBM_AML_LiMedium_RF.sh
-qsub submit_IBM_AML_LiMedium_SVM.sh
+./launch.sh -f jobs.txt
 ```
+
+Check queued jobs with:
+
+```bash
+qstat -u $USER
+```
+
+## How parallel-safe naming works
+
+- **Optuna DBs**: `optimization_results_on_{dataset}_{model}.db` — one per combo.
+- **Result pkls**: `{model}_..._{JOB_ID}.pkl` — `JOB_ID` is derived from `PBS_JOBID` in `submit_RP.sh`, so every job writes uniquely named fragments. No rsync collision.
+- **Batch size cache**: `batch_size_cache_{dataset}_{model}.json` — one per combo, mirrors the Optuna DB pattern.
+
+Concurrent jobs on different (dataset, model) combos can rsync back simultaneously without overwriting each other.
