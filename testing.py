@@ -42,7 +42,7 @@ def run_final_evaluation(models, model_parameters, data, data_for_optimisation, 
             data=data,
             masks=masks,
             dataset_name=data_for_optimisation,
-            n_runs=30
+            n_runs=10
         )
 
 
