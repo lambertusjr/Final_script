@@ -113,13 +113,6 @@ class IBMAMLDataset_HiSmall(InMemoryDataset):
         Internal helper to replicate the edge creation logic from 
         src/data/DatasetConstruction.py [preprocess_ibm].
         """
-        edge_file = os.path.join(self.processed_dir, 'edges.csv')
-        
-        # Check if edges are already processed to save time
-        if os.path.exists(edge_file):
-            print("Edge file already exists. Loading...")
-            return pd.read_csv(edge_file)
-
         print("Processing edges... This may take a while.")
         date_format = '%Y/%m/%d %H:%M'
         
@@ -160,17 +153,14 @@ class IBMAMLDataset_HiSmall(InMemoryDataset):
                 suffixes=('_1', '_2')
             )
 
-            for _, row in data_df_join.iterrows():
-                delta_trans = row['Timestamp_2'] - row['Timestamp_1']
-                total_minutes = delta_trans.days * 24 * 60 + delta_trans.seconds / 60
-                
-                # Check if B is within 4 hours *after* A
-                if 0 <= total_minutes <= delta_minutes:
-                    source.append(row['txId_1'])
-                    target.append(row['txId_2'])
+            total_minutes = (
+                data_df_join['Timestamp_2'] - data_df_join['Timestamp_1']
+            ).dt.total_seconds() / 60.0
+            mask = (total_minutes >= 0) & (total_minutes <= delta_minutes)
+            source.extend(data_df_join.loc[mask, 'txId_1'].tolist())
+            target.extend(data_df_join.loc[mask, 'txId_2'].tolist())
 
         df_edges = pd.DataFrame({'txId1': source, 'txId2': target})
-        df_edges.to_csv(edge_file, index=False)
         print(f"Edge processing complete. Found {len(df_edges)} edges.")
         return df_edges
 
@@ -293,13 +283,6 @@ class IBMAMLDataset_LiSmall(InMemoryDataset):
         Internal helper to replicate the edge creation logic from 
         src/data/DatasetConstruction.py [preprocess_ibm].
         """
-        edge_file = os.path.join(self.processed_dir, 'edges.csv')
-        
-        # Check if edges are already processed to save time
-        if os.path.exists(edge_file):
-            print("Edge file already exists. Loading...")
-            return pd.read_csv(edge_file)
-
         print("Processing edges... This may take a while.")
         date_format = '%Y/%m/%d %H:%M'
         
@@ -340,17 +323,14 @@ class IBMAMLDataset_LiSmall(InMemoryDataset):
                 suffixes=('_1', '_2')
             )
 
-            for _, row in data_df_join.iterrows():
-                delta_trans = row['Timestamp_2'] - row['Timestamp_1']
-                total_minutes = delta_trans.days * 24 * 60 + delta_trans.seconds / 60
-                
-                # Check if B is within 4 hours *after* A
-                if 0 <= total_minutes <= delta_minutes:
-                    source.append(row['txId_1'])
-                    target.append(row['txId_2'])
+            total_minutes = (
+                data_df_join['Timestamp_2'] - data_df_join['Timestamp_1']
+            ).dt.total_seconds() / 60.0
+            mask = (total_minutes >= 0) & (total_minutes <= delta_minutes)
+            source.extend(data_df_join.loc[mask, 'txId_1'].tolist())
+            target.extend(data_df_join.loc[mask, 'txId_2'].tolist())
 
         df_edges = pd.DataFrame({'txId1': source, 'txId2': target})
-        df_edges.to_csv(edge_file, index=False)
         print(f"Edge processing complete. Found {len(df_edges)} edges.")
         return df_edges
 
@@ -468,13 +448,6 @@ class IBMAMLDataset_LiMedium(InMemoryDataset):
         Internal helper to replicate the edge creation logic from 
         src/data/DatasetConstruction.py [preprocess_ibm].
         """
-        edge_file = os.path.join(self.processed_dir, 'edges.csv')
-        
-        # Check if edges are already processed to save time
-        if os.path.exists(edge_file):
-            print("Edge file already exists. Loading...")
-            return pd.read_csv(edge_file)
-
         print("Processing edges... This may take a while.")
         date_format = '%Y/%m/%d %H:%M'
         
@@ -515,17 +488,14 @@ class IBMAMLDataset_LiMedium(InMemoryDataset):
                 suffixes=('_1', '_2')
             )
 
-            for _, row in data_df_join.iterrows():
-                delta_trans = row['Timestamp_2'] - row['Timestamp_1']
-                total_minutes = delta_trans.days * 24 * 60 + delta_trans.seconds / 60
-                
-                # Check if B is within 4 hours *after* A
-                if 0 <= total_minutes <= delta_minutes:
-                    source.append(row['txId_1'])
-                    target.append(row['txId_2'])
+            total_minutes = (
+                data_df_join['Timestamp_2'] - data_df_join['Timestamp_1']
+            ).dt.total_seconds() / 60.0
+            mask = (total_minutes >= 0) & (total_minutes <= delta_minutes)
+            source.extend(data_df_join.loc[mask, 'txId_1'].tolist())
+            target.extend(data_df_join.loc[mask, 'txId_2'].tolist())
 
         df_edges = pd.DataFrame({'txId1': source, 'txId2': target})
-        df_edges.to_csv(edge_file, index=False)
         print(f"Edge processing complete. Found {len(df_edges)} edges.")
         return df_edges
 
@@ -643,13 +613,6 @@ class IBMAMLDataset_HiMedium(InMemoryDataset):
         Internal helper to replicate the edge creation logic from 
         src/data/DatasetConstruction.py [preprocess_ibm].
         """
-        edge_file = os.path.join(self.processed_dir, 'edges.csv')
-        
-        # Check if edges are already processed to save time
-        if os.path.exists(edge_file):
-            print("Edge file already exists. Loading...")
-            return pd.read_csv(edge_file)
-
         print("Processing edges... This may take a while.")
         date_format = '%Y/%m/%d %H:%M'
         
@@ -690,17 +653,14 @@ class IBMAMLDataset_HiMedium(InMemoryDataset):
                 suffixes=('_1', '_2')
             )
 
-            for _, row in data_df_join.iterrows():
-                delta_trans = row['Timestamp_2'] - row['Timestamp_1']
-                total_minutes = delta_trans.days * 24 * 60 + delta_trans.seconds / 60
-                
-                # Check if B is within 4 hours *after* A
-                if 0 <= total_minutes <= delta_minutes:
-                    source.append(row['txId_1'])
-                    target.append(row['txId_2'])
+            total_minutes = (
+                data_df_join['Timestamp_2'] - data_df_join['Timestamp_1']
+            ).dt.total_seconds() / 60.0
+            mask = (total_minutes >= 0) & (total_minutes <= delta_minutes)
+            source.extend(data_df_join.loc[mask, 'txId_1'].tolist())
+            target.extend(data_df_join.loc[mask, 'txId_2'].tolist())
 
         df_edges = pd.DataFrame({'txId1': source, 'txId2': target})
-        df_edges.to_csv(edge_file, index=False)
         print(f"Edge processing complete. Found {len(df_edges)} edges.")
         return df_edges
 
