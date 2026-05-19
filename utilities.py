@@ -4,11 +4,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Data
 import os
+import re
 import json
+import subprocess
 import psutil
 
 
 _cgroup_state = None  # cached (usage_path, limit_bytes) or False after detection
+_pbs_mem_limit_bytes = None  # cached PBS Resource_List.mem in bytes, or False
 
 
 def _detect_cgroup_memory():
@@ -107,6 +110,73 @@ def _read_cgroup_memory():
         return None
 
 
+_PBS_MEM_RE = re.compile(
+    r'Resource_List\.mem\s*=\s*([0-9]+)\s*([kmgtKMGT]?[bB]?)'
+)
+_PBS_MEM_UNITS = {'': 1, 'b': 1, 'kb': 1024, 'mb': 1024**2,
+                  'gb': 1024**3, 'tb': 1024**4,
+                  'k': 1024, 'm': 1024**2, 'g': 1024**3, 't': 1024**4}
+
+
+def _detect_pbs_mem_limit():
+    """
+    Read the PBS mem request via `qstat -f $PBS_JOBID`. PBS Pro at this site
+    enforces `mem` from outside cgroups (the MOM polls process-tree RSS),
+    so the only way to know the limit from inside the job is to ask PBS.
+
+    Returns the limit in bytes, or None when not in a PBS job or qstat fails.
+    """
+    job_id = os.environ.get('PBS_JOBID')
+    if not job_id:
+        return None
+    try:
+        result = subprocess.run(
+            ['qstat', '-f', job_id],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    m = _PBS_MEM_RE.search(result.stdout)
+    if not m:
+        return None
+    try:
+        num = int(m.group(1))
+    except ValueError:
+        return None
+    unit = m.group(2).lower()
+    mult = _PBS_MEM_UNITS.get(unit, 1)
+    return num * mult
+
+
+def _get_pbs_mem_limit():
+    """Cached accessor for the PBS mem limit in bytes (or None)."""
+    global _pbs_mem_limit_bytes
+    if _pbs_mem_limit_bytes is None:
+        _pbs_mem_limit_bytes = _detect_pbs_mem_limit() or False
+    return _pbs_mem_limit_bytes if _pbs_mem_limit_bytes else None
+
+
+def _process_tree_rss():
+    """
+    Sum RSS across this process and all descendants — what PBS's MOM
+    accounts against the `mem` resource on sites that don't use cgroups
+    for enforcement.
+    """
+    try:
+        proc = psutil.Process()
+        total = proc.memory_info().rss
+        for child in proc.children(recursive=True):
+            try:
+                total += child.memory_info().rss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return total
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return 0
+
+
 def configure_gpu_memory_limits(fraction=0.95):
     """
     Configure GPU memory limits to prevent spillover to system RAM.
@@ -138,17 +208,24 @@ def configure_gpu_memory_limits(fraction=0.95):
         print(f"Cgroup memory limit: {limit / (1024**3):.1f} GB "
               f"(currently using {usage / (1024**3):.1f} GB)")
     else:
-        print("Cgroup memory limit: none detected (using host RAM)")
-        _print_cgroup_diagnostic()
+        pbs_limit = _get_pbs_mem_limit()
+        if pbs_limit is not None:
+            usage = _process_tree_rss()
+            print(f"PBS mem limit: {pbs_limit / (1024**3):.1f} GB "
+                  f"(process-tree RSS {usage / (1024**3):.1f} GB)")
+        else:
+            print("Memory limit: none detected (using host RAM)")
+            _print_cgroup_diagnostic()
 
 
 def check_ram_usage():
     """
-    Check current RAM usage. Honours the cgroup memory limit when present
-    (e.g. inside a PBS job) so the values reflect what the scheduler will
-    actually OOM-kill the process for — psutil.virtual_memory() reports the
-    host's total RAM, which is meaningless inside a 120GB cgroup on a 376GB
-    node.
+    Check current RAM usage. Honours the PBS memory limit when present —
+    either via cgroup (when the scheduler uses per-job cgroups) or via
+    `qstat -f $PBS_JOBID` (when PBS enforces `mem` from outside cgroups,
+    as it does at hpc1.hpc, where the MOM polls process-tree RSS).
+    psutil.virtual_memory() reports the host's total RAM, which is
+    meaningless inside a 120GB allocation on a 376GB node.
 
     Returns:
         tuple: (usage_percent, available_gb)
@@ -158,6 +235,13 @@ def check_ram_usage():
         usage, limit = cg
         usage_percent = (usage / limit) * 100 if limit > 0 else 0.0
         available_gb = max(0.0, (limit - usage) / (1024**3))
+        return usage_percent, available_gb
+
+    pbs_limit = _get_pbs_mem_limit()
+    if pbs_limit is not None:
+        usage = _process_tree_rss()
+        usage_percent = (usage / pbs_limit) * 100 if pbs_limit > 0 else 0.0
+        available_gb = max(0.0, (pbs_limit - usage) / (1024**3))
         return usage_percent, available_gb
 
     ram = psutil.virtual_memory()
