@@ -8,6 +8,68 @@ import json
 import psutil
 
 
+_cgroup_state = None  # cached (usage_path, limit_bytes) or False after detection
+
+
+def _detect_cgroup_memory():
+    """
+    One-time probe for this process's cgroup memory controller. Returns
+    (usage_path, limit_bytes) when the process is constrained by a cgroup
+    with a real (non-"max") limit, otherwise None. Supports cgroups v2
+    (unified hierarchy) and v1 (memory subsystem).
+    """
+    # v2: single line "0::/path"
+    try:
+        with open('/proc/self/cgroup') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('0::'):
+                    base = '/sys/fs/cgroup' + line[3:]
+                    with open(base + '/memory.max') as fl:
+                        limit_str = fl.read().strip()
+                    if limit_str != 'max':
+                        return base + '/memory.current', int(limit_str)
+                    break
+    except (OSError, ValueError):
+        pass
+
+    # v1: per-subsystem lines, find "memory" controller path
+    try:
+        memory_cg = None
+        with open('/proc/self/cgroup') as f:
+            for line in f:
+                parts = line.strip().split(':')
+                if len(parts) == 3 and 'memory' in parts[1].split(','):
+                    memory_cg = parts[2]
+                    break
+        if memory_cg is not None:
+            base = '/sys/fs/cgroup/memory' + memory_cg
+            with open(base + '/memory.limit_in_bytes') as fl:
+                limit = int(fl.read().strip())
+            # cgroup v1 reports "no limit" as a sentinel near INT64_MAX
+            if limit < (1 << 62):
+                return base + '/memory.usage_in_bytes', limit
+    except (OSError, ValueError):
+        pass
+
+    return None
+
+
+def _read_cgroup_memory():
+    """Return (usage_bytes, limit_bytes) from this process's cgroup, or None."""
+    global _cgroup_state
+    if _cgroup_state is None:
+        _cgroup_state = _detect_cgroup_memory() or False
+    if not _cgroup_state:
+        return None
+    usage_path, limit = _cgroup_state
+    try:
+        with open(usage_path) as f:
+            return int(f.read().strip()), limit
+    except (OSError, ValueError):
+        return None
+
+
 def configure_gpu_memory_limits(fraction=0.95):
     """
     Configure GPU memory limits to prevent spillover to system RAM.
@@ -26,21 +88,40 @@ def configure_gpu_memory_limits(fraction=0.95):
         alloc_conf = os.environ.get('PYTORCH_CUDA_ALLOC_CONF', 'not set')
         print(f"PYTORCH_CUDA_ALLOC_CONF: {alloc_conf}")
 
-    # Print RAM status at startup
+    # Print RAM status at startup. Surface the cgroup limit (if any) so it's
+    # obvious in the log that batch-size tuning will respect the scheduler's
+    # ceiling rather than the host's total RAM.
     ram = psutil.virtual_memory()
     print(f"System RAM: {ram.total / (1024**3):.1f} GB total, "
           f"{ram.available / (1024**3):.1f} GB available, "
           f"{ram.percent}% used")
+    cg = _read_cgroup_memory()
+    if cg is not None:
+        usage, limit = cg
+        print(f"Cgroup memory limit: {limit / (1024**3):.1f} GB "
+              f"(currently using {usage / (1024**3):.1f} GB)")
+    else:
+        print("Cgroup memory limit: none detected (using host RAM)")
 
 
 def check_ram_usage():
     """
-    Check current system RAM usage.
+    Check current RAM usage. Honours the cgroup memory limit when present
+    (e.g. inside a PBS job) so the values reflect what the scheduler will
+    actually OOM-kill the process for — psutil.virtual_memory() reports the
+    host's total RAM, which is meaningless inside a 120GB cgroup on a 376GB
+    node.
 
     Returns:
-        tuple: (usage_percent, available_gb) - current RAM usage as percentage
-               and available RAM in gigabytes.
+        tuple: (usage_percent, available_gb)
     """
+    cg = _read_cgroup_memory()
+    if cg is not None:
+        usage, limit = cg
+        usage_percent = (usage / limit) * 100 if limit > 0 else 0.0
+        available_gb = max(0.0, (limit - usage) / (1024**3))
+        return usage_percent, available_gb
+
     ram = psutil.virtual_memory()
     return ram.percent, ram.available / (1024**3)
 
