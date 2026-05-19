@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from helper_functions import (
     _get_model_instance, balanced_class_weights, find_optimal_batch_size,
     calculate_metrics, calculate_pr_metrics_batched, save_pr_artifacts,
-    save_metrics_to_pickle, save_dataframe_to_pickle
+    save_metrics_to_pickle, save_dataframe_to_pickle, neighbor_loader_kwargs
 )
 from training_functions import train_and_validate, train_and_validate_with_loader
 from utilities import FocalLoss, set_seed, load_batch_size_by_phase
@@ -146,11 +146,14 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
         # Final-fit trains on train ∪ val; val_loader is intentionally None so the
         # training loop skips per-epoch validation (matches B-Deprez's protocol).
         combined_train_mask = train_mask | val_mask
+        loader_kwargs = neighbor_loader_kwargs()
         train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
-                                      batch_size=tuning_batch_size, input_nodes=combined_train_mask)
+                                      batch_size=tuning_batch_size,
+                                      input_nodes=combined_train_mask, **loader_kwargs)
         val_loader   = None
         test_loader  = NeighborLoader(data, num_neighbors=num_neighbors,
-                                      batch_size=eval_batch_size, input_nodes=test_mask)
+                                      batch_size=eval_batch_size,
+                                      input_nodes=test_mask, **loader_kwargs)
     else:
         print(f"  > Using FULL BATCH for {model_name} on {dataset_name} (no NeighborLoader)")
 

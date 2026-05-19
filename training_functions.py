@@ -26,12 +26,16 @@ def train_and_validate_with_loader(
     train_loader,
     val_loader,
     num_epochs,
+    trial=None,
 ):
     """
     Train for ``num_epochs`` epochs with no early stopping. If ``val_loader`` is
     None, no per-epoch validation runs and the final-epoch weights are returned
     (used for the final-test fit on train ∪ val). Otherwise, the per-epoch
     validation PR-AUC drives best-weights checkpointing.
+
+    If an Optuna ``trial`` is supplied, the per-epoch val PR-AUC is reported
+    and ``optuna.TrialPruned`` is raised when the pruner says so.
     """
     best_pr_auc = -1.0
     best_model_wts = None
@@ -46,6 +50,10 @@ def train_and_validate_with_loader(
                     best_pr_auc, best_model_wts = update_best_weights(
                         model_wrapper.model, best_pr_auc, val_pr_auc, best_model_wts
                     )
+                if trial is not None:
+                    trial.report(val_pr_auc, epoch)
+                    if trial.should_prune():
+                        raise optuna.TrialPruned()
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 if torch.cuda.is_available():
@@ -76,12 +84,16 @@ def train_and_validate(
     masks,
     num_epochs,
     dataset_name,
+    trial=None,
 ):
     """
     Full-batch training with no early stopping. If ``val_mask`` (or
     ``val_perf_eval_mask`` for Elliptic) is None, no per-epoch validation runs
     and final-epoch weights are returned. Otherwise validation PR-AUC drives
     best-weights checkpointing.
+
+    If an Optuna ``trial`` is supplied, the per-epoch val PR-AUC is reported
+    and ``optuna.TrialPruned`` is raised when the pruner says so.
     """
     full_batch_datasets = ["IBM_AML_HiSmall", "IBM_AML_LiSmall"]  # Elliptic uses a different training loop.
 
@@ -100,6 +112,7 @@ def train_and_validate(
             elliptic_validation_masks = None
 
     for epoch in range(num_epochs):
+        reported_pr_auc = None
         if is_elliptic:
             model_wrapper.train_step_elliptic(data, elliptic_training_masks)
             if elliptic_validation_masks is not None:
@@ -110,6 +123,7 @@ def train_and_validate(
                     best_pr_auc, best_model_wts = update_best_weights(
                         model_wrapper.model, best_pr_auc, val_pr_auc, best_model_wts
                     )
+                reported_pr_auc = val_pr_auc
 
         elif dataset_name in full_batch_datasets:
             model_wrapper.train_step_full(data, masks['train_mask'])
@@ -119,6 +133,12 @@ def train_and_validate(
                     best_pr_auc, best_model_wts = update_best_weights(
                         model_wrapper.model, best_pr_auc, val_pr_auc, best_model_wts
                     )
+                reported_pr_auc = val_pr_auc
+
+        if trial is not None and reported_pr_auc is not None:
+            trial.report(reported_pr_auc, epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
 
         _periodic_memory_cleanup(epoch)
 

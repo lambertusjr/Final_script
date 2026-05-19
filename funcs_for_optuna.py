@@ -4,10 +4,10 @@ import torch
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 from models import ModelWrapper
-from helper_functions import (_get_model_instance, balanced_class_weights, check_study_existence, 
-                              find_optimal_batch_size, run_trial_with_cleanup, calculate_metrics, 
-                              calculate_pr_metrics_batched, save_pr_artifacts, save_metrics_to_pickle, 
-                              save_dataframe_to_pickle)
+from helper_functions import (_get_model_instance, balanced_class_weights, check_study_existence,
+                              find_optimal_batch_size, run_trial_with_cleanup, calculate_metrics,
+                              calculate_pr_metrics_batched, save_pr_artifacts, save_metrics_to_pickle,
+                              save_dataframe_to_pickle, neighbor_loader_kwargs)
 from utilities import FocalLoss, set_seed
 from training_functions import train_and_validate_with_loader, train_and_validate
 #from training_funcs import train_and_validate
@@ -15,6 +15,10 @@ import pandas as pd
 import os
 from datetime import datetime
 from torch_geometric.loader import NeighborLoader
+
+# Upper bound on epochs sampled by Optuna. Tightened from 500 → 350 so trials
+# that the Hyperband pruner lets run to completion can't waste budget late.
+MAX_N_EPOCHS = 350
 
 
 def hyperparameter_tuning(
@@ -37,7 +41,7 @@ def hyperparameter_tuning(
 
     for model_name in tqdm(models, desc="Models", unit="model"):
         if model_name in wrapper_models:
-            n_trials = 200
+            n_trials = 150
         else:
             n_trials = 100
         study_name = f'{model_name}_optimization on {dataset_name} dataset'
@@ -62,17 +66,35 @@ def hyperparameter_tuning(
                 model_name=model_name, phase='tuning'
             )
 
+        # Hyperband pruner kills trials that lag at intermediate epochs. Only
+        # applied to wrapper models — sklearn trials don't report per-epoch
+        # values, so the pruner is a no-op for them.
+        pruner = (
+            optuna.pruners.HyperbandPruner(
+                min_resource=20, max_resource=MAX_N_EPOCHS, reduction_factor=3
+            )
+            if model_name in wrapper_models
+            else optuna.pruners.NopPruner()
+        )
         study = optuna.create_study(
             direction='maximize',
             study_name=study_name,
             storage=db_path,
-            load_if_exists=True
+            load_if_exists=True,
+            pruner=pruner,
         )
 
-        # Count only successfully completed trials so partial/failed runs don't
-        # inflate the count, and calculate how many trials still need to run.
-        num_completed = len([t for t in study.trials
-                             if t.state == optuna.trial.TrialState.COMPLETE])
+        # Count every "settled" trial — COMPLETE plus PRUNED plus FAIL — so the
+        # remaining count matches Optuna's ``n_trials`` semantics (one call to
+        # the objective per trial, regardless of outcome). With the Hyperband
+        # pruner now enabled, many trials end as PRUNED and must not count as
+        # "still owed".
+        settled_states = {
+            optuna.trial.TrialState.COMPLETE,
+            optuna.trial.TrialState.PRUNED,
+            optuna.trial.TrialState.FAIL,
+        }
+        num_completed = len([t for t in study.trials if t.state in settled_states])
         remaining_trials = max(0, n_trials - num_completed)
 
         if remaining_trials == 0:
@@ -127,7 +149,7 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         learning_rate = trial.suggest_float('learning_rate', 1e-4, 5e-2, log=True)
         weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-2, log=True)
         gamma_focal = trial.suggest_float('gamma_focal', 0.1, 5.0)
-        n_epochs = trial.suggest_int('n_epochs', 5, 500)
+        n_epochs = trial.suggest_int('n_epochs', 5, MAX_N_EPOCHS)
 
         # Use pre-calculated alpha_focal if provided, else calculate (fallback)
         if alpha_focal is None:
@@ -161,16 +183,19 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         model_wrapper.model.to(device)
 
         if dataset_name in loader_datasets and batch_size is not None:
+            loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
-                                          batch_size=batch_size, input_nodes=train_mask, shuffle=True)
+                                          batch_size=batch_size, input_nodes=train_mask,
+                                          shuffle=True, **loader_kwargs)
             val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
-                                        batch_size=batch_size, input_nodes=masks['val_mask'])
+                                        batch_size=batch_size, input_nodes=masks['val_mask'],
+                                        **loader_kwargs)
             _best_wts, best_pr_auc = train_and_validate_with_loader(
-                model_wrapper, train_loader, val_loader, n_epochs
+                model_wrapper, train_loader, val_loader, n_epochs, trial=trial
             )
         elif dataset_name in full_batch_datasets:
             _best_wts, best_pr_auc = train_and_validate(
-                model_wrapper, data, train_val_masks, n_epochs, dataset_name
+                model_wrapper, data, train_val_masks, n_epochs, dataset_name, trial=trial
             )
         else:
             raise ValueError(f"Unsupported dataset for wrapper model tuning: {dataset_name}")
