@@ -409,7 +409,11 @@ def neighbor_loader_kwargs(num_workers=None):
     memory for faster H2D copies.
     """
     if num_workers is None:
-        num_workers = min(4, (os.cpu_count() or 1))
+        # Halved from 4 to 2: each worker forks the graph and prefetches into
+        # pinned memory, so worker count multiplies CPU memory pressure under
+        # the PBS cgroup limit. 2 workers still hides sampling latency without
+        # blowing past the mem allocation.
+        num_workers = min(2, (os.cpu_count() or 1))
     kwargs = {'num_workers': num_workers}
     if num_workers > 0:
         kwargs['persistent_workers'] = True
