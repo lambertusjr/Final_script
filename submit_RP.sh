@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp055
+#PBS -l select=1:ncpus=4:mem=120GB:ngpus=1:Qlist=ee:host=comp055
 #PBS -q ee
 #PBS -l walltime=200:00:00
 #PBS -j oe
@@ -10,7 +10,7 @@
 # PBS Pro doesn't support -F (script args). Pass via -v at qsub time instead.
 # Usage:
 #   qsub -N "AMLSim_GCN" \
-#        -l "select=1:ncpus=4:mem=32GB:ngpus=1:Qlist=ee:host=comp056" \
+#        -l "select=1:ncpus=4:mem=120GB:ngpus=1:Qlist=ee:host=comp056" \
 #        -v "DATASET=AMLSim,MODEL=GCN,NODE=56,GPU=0" \
 #        submit_RP.sh
 # (launch.sh builds this for you.)
