@@ -312,7 +312,7 @@ def check_study_existence(model_name, data_for_optimization):
         True if the study has >= required completed trials, False otherwise.
     """
     sklearn_models = {'SVM', 'XGB', 'RF'}
-    required = 35 if model_name in sklearn_models else 100
+    required = 35 if model_name in sklearn_models else 150
 
     study_name = f'{model_name}_optimization on {data_for_optimization} dataset'
     storage_url = f'sqlite:///optimization_results_on_{data_for_optimization}_{model_name}.db'
@@ -320,8 +320,14 @@ def check_study_existence(model_name, data_for_optimization):
     try:
         study = optuna.load_study(study_name=study_name, storage=storage_url)
 
-        num_completed = len([t for t in study.trials
-                             if t.state == optuna.trial.TrialState.COMPLETE])
+        # Match the "settled" semantics used by hyperparameter_tuning: a
+        # PRUNED trial is a finished attempt and counts toward the target.
+        settled_states = {
+            optuna.trial.TrialState.COMPLETE,
+            optuna.trial.TrialState.PRUNED,
+            optuna.trial.TrialState.FAIL,
+        }
+        num_completed = len([t for t in study.trials if t.state in settled_states])
 
         if num_completed >= required:
             print(f"Study '{study_name}' complete: {num_completed}/{required} trials done.")
@@ -393,6 +399,24 @@ def inference_mode_if_needed(model_name: str):
             yield
     else:
         yield
+
+def neighbor_loader_kwargs(num_workers=None):
+    """
+    Standard NeighborLoader kwargs that we want everywhere a loader is built
+    for real training/eval (not the batch-size probe). Each fresh epoch was
+    re-spawning workers and falling back to single-process sampling; this
+    keeps workers alive across epochs and pages CPU samples into pinned
+    memory for faster H2D copies.
+    """
+    if num_workers is None:
+        num_workers = min(4, (os.cpu_count() or 1))
+    kwargs = {'num_workers': num_workers}
+    if num_workers > 0:
+        kwargs['persistent_workers'] = True
+    if torch.cuda.is_available():
+        kwargs['pin_memory'] = True
+    return kwargs
+
 
 def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbors=[10, 10], dataset_name=None, model_name=None, phase='tuning'):
     """
