@@ -55,6 +55,43 @@ def _detect_cgroup_memory():
     return None
 
 
+def _print_cgroup_diagnostic():
+    """
+    Dump cgroup state to help debug probe failures on a new cluster. Called
+    when _detect_cgroup_memory returns None so the next job log shows us
+    exactly where to look.
+    """
+    print("--- cgroup diagnostic (probe returned None) ---")
+    try:
+        with open('/proc/self/cgroup') as f:
+            print("/proc/self/cgroup:")
+            for line in f:
+                print(f"  {line.rstrip()}")
+    except OSError as e:
+        print(f"  (failed to read /proc/self/cgroup: {e})")
+
+    try:
+        with open('/proc/self/mountinfo') as f:
+            cgroup_mounts = [l for l in f if 'cgroup' in l]
+        print(f"cgroup mounts ({len(cgroup_mounts)}):")
+        for line in cgroup_mounts[:10]:
+            print(f"  {line.rstrip()}")
+    except OSError as e:
+        print(f"  (failed to read /proc/self/mountinfo: {e})")
+
+    for base in ('/sys/fs/cgroup/memory', '/sys/fs/cgroup'):
+        try:
+            entries = sorted(os.listdir(base))
+            print(f"ls {base}: {entries[:20]}")
+        except OSError as e:
+            print(f"ls {base}: ({e})")
+
+    pbs_vars = {k: v for k, v in os.environ.items()
+                if k.startswith('PBS_') or 'MEM' in k.upper()}
+    print(f"PBS/MEM env vars: {pbs_vars}")
+    print("--- end diagnostic ---")
+
+
 def _read_cgroup_memory():
     """Return (usage_bytes, limit_bytes) from this process's cgroup, or None."""
     global _cgroup_state
@@ -102,6 +139,7 @@ def configure_gpu_memory_limits(fraction=0.95):
               f"(currently using {usage / (1024**3):.1f} GB)")
     else:
         print("Cgroup memory limit: none detected (using host RAM)")
+        _print_cgroup_diagnostic()
 
 
 def check_ram_usage():
