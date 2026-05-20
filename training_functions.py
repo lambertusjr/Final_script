@@ -78,6 +78,70 @@ def train_and_validate_with_loader(
     return best_model_wts, best_pr_auc
 
 
+def train_and_validate_in_vram(
+    model_wrapper,
+    x_train,
+    y_train,
+    x_val,
+    y_val,
+    num_epochs,
+    batch_size,
+    trial=None,
+):
+    """
+    Train a graph-agnostic model (MLP) directly on GPU-resident feature
+    tensors. ``x_train`` / ``y_train`` (and optionally ``x_val`` / ``y_val``)
+    must already live on the same device as the model. This skips
+    NeighborLoader entirely, which is otherwise the bottleneck for the MLP
+    on loader datasets — the sampler does CPU graph traversal that the
+    model never uses.
+
+    If ``x_val`` is None, no per-epoch validation runs and final-epoch
+    weights are returned (matches the loader/full-batch variants).
+    """
+    best_pr_auc = -1.0
+    best_model_wts = None
+
+    for epoch in range(num_epochs):
+        try:
+            model_wrapper.train_step_in_vram(x_train, y_train, batch_size)
+
+            if x_val is not None:
+                _, _val_f1, val_pr_auc = model_wrapper.mini_eval_in_vram(
+                    x_val, y_val, batch_size
+                )
+                if val_pr_auc > best_pr_auc:
+                    best_pr_auc, best_model_wts = update_best_weights(
+                        model_wrapper.model, best_pr_auc, val_pr_auc, best_model_wts
+                    )
+                if trial is not None:
+                    trial.report(val_pr_auc, epoch)
+                    if trial.should_prune():
+                        raise optuna.TrialPruned()
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                gc.collect()
+                print(f"CUDA OOM at epoch {epoch+1}. Pruning trial.")
+                if not cuda_context_healthy():
+                    raise RuntimeError(
+                        f"CUDA context corrupted after OOM at epoch {epoch+1}. "
+                        "Restart the kernel to avoid access violations."
+                    )
+            raise
+
+        _periodic_memory_cleanup(epoch)
+
+    if x_val is None:
+        final_wts = {k: v.cpu().clone().detach()
+                     for k, v in model_wrapper.model.state_dict().items()}
+        return final_wts, float('nan')
+
+    return best_model_wts, best_pr_auc
+
+
 def train_and_validate(
     model_wrapper,
     data,

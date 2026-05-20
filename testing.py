@@ -11,12 +11,17 @@ from helper_functions import (
     calculate_metrics, calculate_pr_metrics_batched, save_pr_artifacts,
     save_metrics_to_pickle, save_dataframe_to_pickle, neighbor_loader_kwargs
 )
-from training_functions import train_and_validate, train_and_validate_with_loader
+from training_functions import (train_and_validate, train_and_validate_with_loader,
+                                 train_and_validate_in_vram)
 from utilities import FocalLoss, set_seed, load_batch_size_by_phase
 from models import ModelWrapper
 from torch_geometric.loader import NeighborLoader
 
 JOB_ID = os.environ.get("JOB_ID") or f"local-{os.getpid()}"
+
+# Must match funcs_for_optuna.MLP_IN_VRAM_BATCH_SIZE — kept duplicated to avoid
+# a cross-module import cycle.
+MLP_IN_VRAM_BATCH_SIZE = 16384
 
 
 def run_final_evaluation(models, model_parameters, data, data_for_optimisation, masks):
@@ -107,8 +112,27 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     alpha_focal = alpha_focal.to(device)
 
     # ── 4. Determine loading strategy ────────────────────────────────────
-    use_loader = (dataset_name in batch_loader_datasets) and (model_name in wrapper_models)
+    # MLP on loader datasets uses the in-VRAM path: masked feature/label
+    # tensors are pre-moved to GPU and iterated by index slicing, with no
+    # NeighborLoader involvement at all.
+    is_mlp_in_vram = (model_name == "MLP" and dataset_name in batch_loader_datasets)
+    use_loader = (dataset_name in batch_loader_datasets) and (model_name in wrapper_models) \
+                 and not is_mlp_in_vram
     train_loader, val_loader, test_loader = None, None, None
+    x_train_in_vram = y_train_in_vram = x_test_in_vram = y_test_in_vram = None
+
+    if is_mlp_in_vram:
+        # Final-fit trains on train ∪ val (val intentionally None inside the
+        # training loop). Test set goes to GPU for batched evaluation.
+        combined_train_mask = (train_mask | val_mask).to(device)
+        test_mask_dev = test_mask.to(device)
+        x_train_in_vram = data.x[combined_train_mask].to(device, non_blocking=True)
+        y_train_in_vram = data.y[combined_train_mask].to(device, non_blocking=True)
+        x_test_in_vram = data.x[test_mask_dev].to(device, non_blocking=True)
+        y_test_in_vram = data.y[test_mask_dev].to(device, non_blocking=True)
+        del combined_train_mask, test_mask_dev
+        print(f"  > Using IN-VRAM path for {model_name} on {dataset_name} "
+              f"(batch_size={MLP_IN_VRAM_BATCH_SIZE}, no NeighborLoader)")
 
     if use_loader:
         num_neighbors = [10, 10]
@@ -160,7 +184,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     # ── 5. Prepare masks dict for train_and_validate (full-batch) ────────
     #    For the final-test fit we train on train ∪ val and pass val_mask=None
     #    so the training loop skips per-epoch checkpointing (B-Deprez style).
-    if not use_loader and model_name in wrapper_models:
+    if not use_loader and model_name in wrapper_models and not is_mlp_in_vram:
         if is_elliptic:
             combined_train_mask = masks['train_mask'] | masks['val_mask']
             combined_train_perf_mask = masks['train_perf_eval_mask'] | masks['val_perf_eval_mask']
@@ -214,7 +238,12 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             num_epochs = best_params.get('n_epochs', 200 if model_name == "MLP" else 150)
 
             # ── TRAIN (no per-epoch validation: val_loader/val_mask is None) ─
-            if use_loader:
+            if is_mlp_in_vram:
+                best_wts, _ = train_and_validate_in_vram(
+                    model_wrapper, x_train_in_vram, y_train_in_vram,
+                    None, None, num_epochs, MLP_IN_VRAM_BATCH_SIZE
+                )
+            elif use_loader:
                 best_wts, _ = train_and_validate_with_loader(
                     model_wrapper, train_loader, val_loader, num_epochs
                 )
@@ -228,7 +257,12 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             model_wrapper.model.load_state_dict(best_wts)
 
             # ── EVALUATE ─────────────────────────────────────────────────
-            if use_loader:
+            if is_mlp_in_vram:
+                _, test_metrics = model_wrapper.evaluate_in_vram(
+                    x_test_in_vram, y_test_in_vram, MLP_IN_VRAM_BATCH_SIZE
+                )
+
+            elif use_loader:
                 _, test_metrics = model_wrapper.evaluate_loader(test_loader)
 
             elif is_elliptic:
@@ -364,6 +398,15 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
         gc.collect()
+        gc.collect()
+
+    # Free MLP in-VRAM tensors once all runs are complete (kept across runs
+    # since the masked feature data is identical for every seed).
+    if is_mlp_in_vram:
+        del x_train_in_vram, y_train_in_vram, x_test_in_vram, y_test_in_vram
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
         gc.collect()
 
     # ══════════════════════════════════════════════════════════════════════
