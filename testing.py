@@ -107,7 +107,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     alpha_focal = alpha_focal.to(device)
 
     # ── 4. Determine loading strategy ────────────────────────────────────
-    use_loader = dataset_name in batch_loader_datasets
+    use_loader = (dataset_name in batch_loader_datasets) and (model_name in wrapper_models)
     train_loader, val_loader, test_loader = None, None, None
 
     if use_loader:
