@@ -1,4 +1,5 @@
 import math
+from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -276,6 +277,113 @@ class ModelWrapper:
             pr_auc = _safe_average_precision(y_true_np, probs_np)
 
         return float(loss.detach()), float(f1_illicit), float(pr_auc)
+
+    # In-VRAM training path for graph-agnostic models (MLP). The full feature
+    # and label tensors are pre-moved to GPU once by the caller; we just
+    # iterate via index slicing. This bypasses NeighborLoader entirely, which
+    # otherwise spends most of its time doing CPU graph sampling that the MLP
+    # would throw away.
+    def train_step_in_vram(self, x_train, y_train, batch_size):
+        self.model.train()
+        device = next(self.model.parameters()).device
+        n = x_train.shape[0]
+        perm = torch.randperm(n, device=device)
+        total_loss = 0.0
+        num_batches = 0
+        all_preds, all_labels = [], []
+
+        for start in range(0, n, batch_size):
+            idx = perm[start:start + batch_size]
+            # BatchNorm1d requires ≥2 samples in train mode; skip the trailing
+            # fragment when n isn't divisible by batch_size and the remainder
+            # happens to be a singleton.
+            if idx.shape[0] < 2:
+                continue
+            xb = x_train[idx]
+            yb = y_train[idx]
+
+            self.optimiser.zero_grad()
+            out = self.model(SimpleNamespace(x=xb))
+
+            loss = self.criterion(out, yb)
+            loss.backward()
+            self.optimiser.step()
+            total_loss += float(loss.detach())
+            num_batches += 1
+
+            pred = out.argmax(dim=1)
+            all_preds.append(pred.detach())
+            all_labels.append(yb.detach())
+
+        y_true = torch.cat(all_labels).cpu().numpy()
+        y_pred = torch.cat(all_preds).cpu().numpy()
+        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary')
+
+        return total_loss / max(num_batches, 1), f1_illicit
+
+    def mini_eval_in_vram(self, x_eval, y_eval, batch_size):
+        self.model.eval()
+        n = x_eval.shape[0]
+        total_loss = 0.0
+        num_batches = 0
+        all_preds, all_probs, all_labels = [], [], []
+
+        with torch.no_grad():
+            for start in range(0, n, batch_size):
+                xb = x_eval[start:start + batch_size]
+                yb = y_eval[start:start + batch_size]
+                out = self.model(SimpleNamespace(x=xb))
+
+                loss = self.criterion(out, yb)
+                total_loss += float(loss.detach())
+                num_batches += 1
+
+                pred = out.argmax(dim=1)
+                probs = torch.softmax(out, dim=1)[:, 1]
+                all_preds.append(pred)
+                all_probs.append(probs)
+                all_labels.append(yb)
+
+        y_true = torch.cat(all_labels).cpu().numpy()
+        y_pred = torch.cat(all_preds).cpu().numpy()
+        y_prob = torch.cat(all_probs).cpu().numpy()
+        f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary')
+        pr_auc = _safe_average_precision(y_true, y_prob)
+
+        return total_loss / max(num_batches, 1), f1_illicit, pr_auc
+
+    def evaluate_in_vram(self, x_eval, y_eval, batch_size):
+        self.model.eval()
+        n = x_eval.shape[0]
+        total_loss = 0.0
+        num_batches = 0
+        all_preds, all_probs, all_labels = [], [], []
+
+        with torch.no_grad():
+            for start in range(0, n, batch_size):
+                xb = x_eval[start:start + batch_size]
+                yb = y_eval[start:start + batch_size]
+                out = self.model(SimpleNamespace(x=xb))
+
+                loss = self.criterion(out, yb)
+                total_loss += float(loss.detach())
+                num_batches += 1
+
+                probs = torch.softmax(out, dim=1)
+                pred = out.argmax(dim=1)
+                all_preds.append(pred)
+                all_probs.append(probs)
+                all_labels.append(yb)
+
+        y_true = torch.cat(all_labels).cpu().numpy()
+        y_pred = torch.cat(all_preds).cpu().numpy()
+        y_prob = torch.cat(all_probs).cpu().numpy()
+
+        metrics = calculate_metrics(y_true, y_pred, y_prob)
+        metrics['probs'] = y_prob
+        metrics['preds'] = y_pred
+        metrics['y_true'] = y_true
+        return total_loss / max(num_batches, 1), metrics
 
     # Bug 12 fix: lightweight validation method for loader-based training (used by train_and_validate_with_loader)
     def evaluate_loader_mini(self, loader):

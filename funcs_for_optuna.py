@@ -9,7 +9,8 @@ from helper_functions import (_get_model_instance, balanced_class_weights, check
                               calculate_pr_metrics_batched, save_pr_artifacts, save_metrics_to_pickle,
                               save_dataframe_to_pickle, neighbor_loader_kwargs)
 from utilities import FocalLoss, set_seed
-from training_functions import train_and_validate_with_loader, train_and_validate
+from training_functions import (train_and_validate_with_loader, train_and_validate,
+                                 train_and_validate_in_vram)
 #from training_funcs import train_and_validate
 import pandas as pd
 import os
@@ -19,6 +20,12 @@ from torch_geometric.loader import NeighborLoader
 # Upper bound on epochs sampled by Optuna. Tightened from 500 → 350 so trials
 # that the Hyperband pruner lets run to completion can't waste budget late.
 MAX_N_EPOCHS = 350
+
+# Mini-batch size for the MLP in-VRAM training path. The MLP doesn't use the
+# graph, so per-batch VRAM is just (batch_size × hidden × 4 bytes) — trivial
+# even for hidden=512. A larger batch reduces step overhead; 16384 is a sweet
+# spot for tensor-core utilisation without making BatchNorm statistics noisy.
+MLP_IN_VRAM_BATCH_SIZE = 16384
 
 
 def hyperparameter_tuning(
@@ -50,9 +57,13 @@ def hyperparameter_tuning(
             print(f"Study for {model_name} on {dataset_name} already complete. Skipping optimization.")
             continue
 
-        # Find optimal batch size for NeighborLoader datasets with wrapper models
+        # Find optimal batch size for NeighborLoader datasets with wrapper models.
+        # MLP uses the in-VRAM path (no NeighborLoader, no graph sampling), so the
+        # batch-size probe is unnecessary — per-batch VRAM is dominated by the
+        # tiny activation tensor and we use a fixed MLP_IN_VRAM_BATCH_SIZE instead.
         batch_size = None
-        if dataset_name in loader_datasets and model_name in wrapper_models:
+        if (dataset_name in loader_datasets and model_name in wrapper_models
+                and model_name != "MLP"):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             def _model_builder():
                 class MockTrial:
@@ -182,7 +193,23 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         model_wrapper = ModelWrapper(model_instance, optimiser, criterion)
         model_wrapper.model.to(device)
 
-        if dataset_name in loader_datasets and batch_size is not None:
+        if dataset_name in loader_datasets and model == "MLP":
+            # In-VRAM MLP: skip NeighborLoader entirely. Pre-move masked feature
+            # and label tensors to GPU once; the per-epoch loop just slices them.
+            train_mask_dev = masks['train_mask'].to(device)
+            val_mask_dev = masks['val_mask'].to(device)
+            x_train = data.x[train_mask_dev].to(device, non_blocking=True)
+            y_train = data.y[train_mask_dev].to(device, non_blocking=True)
+            x_val = data.x[val_mask_dev].to(device, non_blocking=True)
+            y_val = data.y[val_mask_dev].to(device, non_blocking=True)
+            try:
+                _best_wts, best_pr_auc = train_and_validate_in_vram(
+                    model_wrapper, x_train, y_train, x_val, y_val,
+                    n_epochs, MLP_IN_VRAM_BATCH_SIZE, trial=trial
+                )
+            finally:
+                del x_train, y_train, x_val, y_val, train_mask_dev, val_mask_dev
+        elif dataset_name in loader_datasets and batch_size is not None:
             loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                           batch_size=batch_size, input_nodes=train_mask,
