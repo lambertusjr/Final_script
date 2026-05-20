@@ -1,3 +1,4 @@
+import sys
 import torch
 import numpy as np
 from torchmetrics.classification import BinaryPrecisionRecallCurve
@@ -409,11 +410,17 @@ def neighbor_loader_kwargs(num_workers=None):
     memory for faster H2D copies.
     """
     if num_workers is None:
-        # Halved from 4 to 2: each worker forks the graph and prefetches into
-        # pinned memory, so worker count multiplies CPU memory pressure under
-        # the PBS cgroup limit. 2 workers still hides sampling latency without
-        # blowing past the mem allocation.
-        num_workers = min(2, (os.cpu_count() or 1))
+        # Windows uses spawn (not fork) for multiprocessing, making workers
+        # much more fragile — they die under graph-memory pressure. Use 0
+        # (main-process loading) on Windows; 2 workers on Linux/HPC.
+        if sys.platform == 'win32':
+            num_workers = 0
+        else:
+            # Halved from 4 to 2: each worker forks the graph and prefetches into
+            # pinned memory, so worker count multiplies CPU memory pressure under
+            # the PBS cgroup limit. 2 workers still hides sampling latency without
+            # blowing past the mem allocation.
+            num_workers = min(2, (os.cpu_count() or 1))
     kwargs = {'num_workers': num_workers}
     if num_workers > 0:
         kwargs['persistent_workers'] = True
