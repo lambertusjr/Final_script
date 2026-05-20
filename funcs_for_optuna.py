@@ -27,6 +27,22 @@ MAX_N_EPOCHS = 350
 # spot for tensor-core utilisation without making BatchNorm statistics noisy.
 MLP_IN_VRAM_BATCH_SIZE = 16384
 
+# Datasets where GCN/GAT/GIN train full-batch on the GPU instead of going
+# through NeighborLoader. The sampler is a CPU bottleneck on these graphs and
+# the static data (x, edge_index, y, masks) fits comfortably in VRAM on a
+# 16+ GB GPU at moderate hidden sizes. Trials that OOM at higher hidden_units
+# get caught by Optuna's torch.OutOfMemoryError filter and pruned, so the
+# search space upper bound doesn't need to shrink.
+#
+# To roll back the GNN full-batch experiment: empty this set
+# (GNN_FULL_BATCH_DATASETS = set()) — every other knob stays the same.
+GNN_FULL_BATCH_DATASETS = {"IBM_AML_HiSmall"}
+GNN_MODELS = {"GCN", "GAT", "GIN"}
+
+
+def _use_gnn_full_batch(model_name, dataset_name):
+    return model_name in GNN_MODELS and dataset_name in GNN_FULL_BATCH_DATASETS
+
 
 def hyperparameter_tuning(
         models,
@@ -61,9 +77,12 @@ def hyperparameter_tuning(
         # MLP uses the in-VRAM path (no NeighborLoader, no graph sampling), so the
         # batch-size probe is unnecessary — per-batch VRAM is dominated by the
         # tiny activation tensor and we use a fixed MLP_IN_VRAM_BATCH_SIZE instead.
+        # GNNs flagged for full-batch training (see GNN_FULL_BATCH_DATASETS) also
+        # skip the probe — no loader, no batch.
         batch_size = None
         if (dataset_name in loader_datasets and model_name in wrapper_models
-                and model_name != "MLP"):
+                and model_name != "MLP"
+                and not _use_gnn_full_batch(model_name, dataset_name)):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             def _model_builder():
                 class MockTrial:
@@ -209,6 +228,16 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
                 )
             finally:
                 del x_train, y_train, x_val, y_val, train_mask_dev, val_mask_dev
+        elif _use_gnn_full_batch(model, dataset_name):
+            # GNN full-batch: route through train_and_validate (the same path
+            # Elliptic uses). Move data to GPU here so train_step_full /
+            # mini_eval_full don't re-copy the graph every epoch (PyG's
+            # Data.to is a no-op once the tensors are already on device).
+            data = data.to(device)
+            _best_wts, best_pr_auc = train_and_validate(
+                model_wrapper, data, train_val_masks, n_epochs, dataset_name,
+                trial=trial
+            )
         elif dataset_name in loader_datasets and batch_size is not None:
             loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,

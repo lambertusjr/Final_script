@@ -23,6 +23,15 @@ JOB_ID = os.environ.get("JOB_ID") or f"local-{os.getpid()}"
 # a cross-module import cycle.
 MLP_IN_VRAM_BATCH_SIZE = 16384
 
+# Mirror funcs_for_optuna's GNN full-batch toggle. Keep in sync with that file;
+# duplicated to avoid an import cycle. To roll back: set to an empty set.
+GNN_FULL_BATCH_DATASETS = {"IBM_AML_HiSmall"}
+GNN_MODELS = {"GCN", "GAT", "GIN"}
+
+
+def _use_gnn_full_batch(model_name, dataset_name):
+    return model_name in GNN_MODELS and dataset_name in GNN_FULL_BATCH_DATASETS
+
 
 def run_final_evaluation(models, model_parameters, data, data_for_optimisation, masks):
     """
@@ -116,8 +125,12 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
     # tensors are pre-moved to GPU and iterated by index slicing, with no
     # NeighborLoader involvement at all.
     is_mlp_in_vram = (model_name == "MLP" and dataset_name in batch_loader_datasets)
+    # GNN full-batch: skip the loader and train on the whole graph in VRAM
+    # (same path Elliptic uses). Gated by GNN_FULL_BATCH_DATASETS so the
+    # change can be rolled back by emptying that set.
+    is_gnn_full_batch = _use_gnn_full_batch(model_name, dataset_name)
     use_loader = (dataset_name in batch_loader_datasets) and (model_name in wrapper_models) \
-                 and not is_mlp_in_vram
+                 and not is_mlp_in_vram and not is_gnn_full_batch
     train_loader, val_loader, test_loader = None, None, None
     x_train_in_vram = y_train_in_vram = x_test_in_vram = y_test_in_vram = None
 
@@ -133,6 +146,15 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
         del combined_train_mask, test_mask_dev
         print(f"  > Using IN-VRAM path for {model_name} on {dataset_name} "
               f"(batch_size={MLP_IN_VRAM_BATCH_SIZE}, no NeighborLoader)")
+
+    if is_gnn_full_batch:
+        # Move graph to GPU once for the GNN full-batch path. evaluate_full /
+        # train_step_full also call data.to(device) defensively, but those
+        # become no-ops after this move (PyG only copies tensors that aren't
+        # already on the target device).
+        data = data.to(device)
+        print(f"  > Using FULL BATCH for {model_name} on {dataset_name} "
+              f"(GNN_FULL_BATCH_DATASETS, no NeighborLoader)")
 
     if use_loader:
         num_neighbors = [10, 10]
