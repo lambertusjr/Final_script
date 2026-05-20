@@ -194,21 +194,20 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
         model_wrapper.model.to(device)
 
         if dataset_name in loader_datasets and model == "MLP":
-            # In-VRAM MLP: skip NeighborLoader entirely. Pre-move masked feature
-            # and label tensors to GPU once; the per-epoch loop just slices them.
-            train_mask_dev = masks['train_mask'].to(device)
-            val_mask_dev = masks['val_mask'].to(device)
-            x_train = data.x[train_mask_dev].to(device, non_blocking=True)
-            y_train = data.y[train_mask_dev].to(device, non_blocking=True)
-            x_val = data.x[val_mask_dev].to(device, non_blocking=True)
-            y_val = data.y[val_mask_dev].to(device, non_blocking=True)
+            # In-VRAM MLP: skip NeighborLoader entirely. data.x lives on CPU for
+            # loader datasets, so index on CPU and move only the selected slice
+            # to GPU — indexing a CPU tensor with a CUDA mask raises RuntimeError.
+            x_train = data.x[masks['train_mask']].to(device, non_blocking=True)
+            y_train = data.y[masks['train_mask']].to(device, non_blocking=True)
+            x_val = data.x[masks['val_mask']].to(device, non_blocking=True)
+            y_val = data.y[masks['val_mask']].to(device, non_blocking=True)
             try:
                 _best_wts, best_pr_auc = train_and_validate_in_vram(
                     model_wrapper, x_train, y_train, x_val, y_val,
                     n_epochs, MLP_IN_VRAM_BATCH_SIZE, trial=trial
                 )
             finally:
-                del x_train, y_train, x_val, y_val, train_mask_dev, val_mask_dev
+                del x_train, y_train, x_val, y_val
         elif dataset_name in loader_datasets and batch_size is not None:
             loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,

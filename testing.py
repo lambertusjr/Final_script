@@ -123,14 +123,14 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
 
     if is_mlp_in_vram:
         # Final-fit trains on train ∪ val (val intentionally None inside the
-        # training loop). Test set goes to GPU for batched evaluation.
-        combined_train_mask = (train_mask | val_mask).to(device)
-        test_mask_dev = test_mask.to(device)
+        # training loop). data.x lives on CPU for loader datasets, so index on
+        # CPU and move only the selected slice to GPU.
+        combined_train_mask = train_mask | val_mask
         x_train_in_vram = data.x[combined_train_mask].to(device, non_blocking=True)
         y_train_in_vram = data.y[combined_train_mask].to(device, non_blocking=True)
-        x_test_in_vram = data.x[test_mask_dev].to(device, non_blocking=True)
-        y_test_in_vram = data.y[test_mask_dev].to(device, non_blocking=True)
-        del combined_train_mask, test_mask_dev
+        x_test_in_vram = data.x[test_mask].to(device, non_blocking=True)
+        y_test_in_vram = data.y[test_mask].to(device, non_blocking=True)
+        del combined_train_mask
         print(f"  > Using IN-VRAM path for {model_name} on {dataset_name} "
               f"(batch_size={MLP_IN_VRAM_BATCH_SIZE}, no NeighborLoader)")
 
