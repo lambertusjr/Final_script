@@ -212,10 +212,10 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
             loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                           batch_size=batch_size, input_nodes=train_mask,
-                                          shuffle=True, **loader_kwargs)
+                                          shuffle=True, is_sorted=True, **loader_kwargs)
             val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                         batch_size=batch_size, input_nodes=masks['val_mask'],
-                                        **loader_kwargs)
+                                        is_sorted=True, **loader_kwargs)
             _best_wts, best_pr_auc = train_and_validate_with_loader(
                 model_wrapper, train_loader, val_loader, n_epochs, trial=trial
             )

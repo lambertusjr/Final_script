@@ -401,6 +401,20 @@ def inference_mode_if_needed(model_name: str):
     else:
         yield
 
+_SAMPLER_BACKEND_LOGGED = False
+
+def _log_sampler_backend_once():
+    global _SAMPLER_BACKEND_LOGGED
+    if _SAMPLER_BACKEND_LOGGED:
+        return
+    _SAMPLER_BACKEND_LOGGED = True
+    try:
+        import pyg_lib
+        print(f"[sampler] pyg-lib {pyg_lib.__version__} detected -> C++ neighbor sampler ACTIVE")
+    except ImportError:
+        print("[sampler] pyg-lib NOT installed -> falling back to slow Python sampler")
+
+
 def neighbor_loader_kwargs(num_workers=None):
     """
     Standard NeighborLoader kwargs that we want everywhere a loader is built
@@ -414,6 +428,7 @@ def neighbor_loader_kwargs(num_workers=None):
     worker forks the graph + holds pinned-memory prefetch buffers (~1-2 GB
     per worker for AMLSim-scale graphs).
     """
+    _log_sampler_backend_once()
     if num_workers is None:
         if sys.platform == 'win32':
             num_workers = 0
@@ -519,6 +534,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 batch_size=batch_size,
                 input_nodes=train_mask,
                 shuffle=True,
+                is_sorted=True,
                 **neighbor_loader_kwargs()
             )
 

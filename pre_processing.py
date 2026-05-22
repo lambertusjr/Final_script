@@ -67,7 +67,8 @@ class EllipticDataset(InMemoryDataset):
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
         edge_index_tensor = sort_edge_index(
-            edge_index_tensor, num_nodes=features_tensor.shape[0]
+            edge_index_tensor, num_nodes=features_tensor.shape[0],
+            sort_by_row=False,
         )
         y_tensor = torch.tensor(classes_df['class'].values, dtype=torch.long)
 
@@ -242,7 +243,7 @@ class IBMAMLDataset_HiSmall(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
-        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0], sort_by_row=False)
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -406,7 +407,7 @@ class IBMAMLDataset_LiSmall(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
-        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0], sort_by_row=False)
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -572,7 +573,7 @@ class IBMAMLDataset_LiMedium(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
-        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0], sort_by_row=False)
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -739,7 +740,7 @@ class IBMAMLDataset_HiMedium(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
-        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0], sort_by_row=False)
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -832,7 +833,7 @@ class AMLSimDataset(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
-        edge_index = sort_edge_index(edge_index, num_nodes=num_accounts)
+        edge_index = sort_edge_index(edge_index, num_nodes=num_accounts, sort_by_row=False)
         print(f"Number of edges (transactions): {edge_index.shape[1]}")
 
         # 5. Account-level features
