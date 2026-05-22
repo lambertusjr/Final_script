@@ -1,4 +1,6 @@
 import math
+import os
+import time
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -9,6 +11,8 @@ from torch_geometric.nn.norm import GraphNorm
 from helper_functions import calculate_metrics
 from sklearn.metrics import f1_score, average_precision_score
 from torchmetrics.classification import BinaryF1Score
+
+_PROFILE_DONE = False  # set to True after the first profiled epoch prints
 
 def _safe_average_precision(y_true, y_score):
     # average_precision_score raises if only one class is present in y_true.
@@ -28,20 +32,34 @@ class ModelWrapper:
         self.criterion = criterion
 
     def train_step_loader(self, loader):
+        global _PROFILE_DONE
+        profile = (os.environ.get('AML_PROFILE') == '1') and not _PROFILE_DONE
+        sample_t = forward_t = backward_t = h2d_t = 0.0
+        n_profiled = 0
+        cuda_sync = torch.cuda.is_available()
+
         self.model.train()
         total_loss = 0
         device = next(self.model.parameters()).device
         all_preds, all_labels = [], []
+        if profile:
+            t_loop = time.perf_counter()
         for batch in loader:
+            if profile:
+                if cuda_sync: torch.cuda.synchronize()
+                t0 = time.perf_counter()
             batch = batch.to(device)
+            if profile:
+                if cuda_sync: torch.cuda.synchronize()
+                t_h2d = time.perf_counter()
             self.optimiser.zero_grad()
-            
+
             out = self.model(batch)
             # Slice to get only target nodes (first batch_size nodes in NeighborLoader)
             batch_size = batch.batch_size
             out_sliced = out[:batch_size]
             y_sliced = batch.y[:batch_size]
-            
+
             # Validate labels before computing loss
             num_classes = out_sliced.shape[-1]
             if y_sliced.min() < 0 or y_sliced.max() >= num_classes:
@@ -50,19 +68,65 @@ class ModelWrapper:
                     f"max={y_sliced.max().item()}, but model has {num_classes} classes. "
                     f"Labels must be in range [0, {num_classes-1}]"
                 )
-            
+
             loss = self.criterion(out_sliced, y_sliced)
+            if profile:
+                if cuda_sync: torch.cuda.synchronize()
+                t_fwd = time.perf_counter()
             loss.backward()
             self.optimiser.step()
+            if profile:
+                if cuda_sync: torch.cuda.synchronize()
+                t_bwd = time.perf_counter()
+                # t0..t_h2d:  sample (next(loader)) + .to(device)
+                # t_h2d..t_fwd: forward + loss
+                # t_fwd..t_bwd: backward + optimiser.step
+                # We separate sample vs h2d by subtracting a no-op .to(),
+                # but the dominant cost in t0..t_h2d when num_workers=0 is
+                # the synchronous next() of the loader iterator (= sample).
+                sample_t += (t_h2d - t0)
+                forward_t += (t_fwd - t_h2d)
+                backward_t += (t_bwd - t_fwd)
+                n_profiled += 1
             total_loss += float(loss.detach())
 
             pred = out_sliced.argmax(dim=1)
-            
+
             all_preds.append(pred.cpu())
             all_labels.append(y_sliced.cpu())
-            
+
             # Clean up batch to prevent memory accumulation
             del batch, out, out_sliced, y_sliced, loss, pred
+
+            if profile and n_profiled >= 50:
+                break
+
+        if profile and n_profiled > 0:
+            total = time.perf_counter() - t_loop
+            print(f"\n[AML_PROFILE] First {n_profiled} batches of first epoch "
+                  f"(num_workers={getattr(loader, 'num_workers', '?')}, "
+                  f"batch_size={getattr(loader, 'batch_size', '?')}):")
+            print(f"  sample + H2D : {sample_t * 1000 / n_profiled:6.1f} ms/batch")
+            print(f"  forward      : {forward_t * 1000 / n_profiled:6.1f} ms/batch")
+            print(f"  backward+opt : {backward_t * 1000 / n_profiled:6.1f} ms/batch")
+            print(f"  total /batch : {total * 1000 / n_profiled:6.1f} ms")
+            tot = sample_t + forward_t + backward_t
+            if tot > 0:
+                print(f"  -> sample share: {100 * sample_t / tot:.0f}%   "
+                      f"compute share: {100 * (forward_t + backward_t) / tot:.0f}%")
+            _PROFILE_DONE = True
+            # Stop training this epoch early since we broke out of the loop.
+            # Return partial metrics so the caller doesn't crash.
+            if all_labels:
+                import numpy as _np
+                y_true = torch.cat(all_labels).numpy()
+                y_pred = torch.cat(all_preds).numpy()
+                if len(_np.unique(y_true)) > 1:
+                    f1_illicit = f1_score(y_true, y_pred, pos_label=1, average='binary')
+                else:
+                    f1_illicit = 0.0
+                return total_loss / n_profiled, f1_illicit
+            return 0.0, 0.0
 
         y_true = torch.cat(all_labels).numpy()
         y_pred = torch.cat(all_preds).numpy()
