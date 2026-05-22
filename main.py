@@ -32,9 +32,12 @@ if platform.system() == 'Linux':
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
     import sys
-    datasets = [sys.argv[1]] #Getting dataset variable from submit.sh script
-    models = [sys.argv[2]] #Getting model variable from submit.sh script
-    
+    if len(sys.argv) >= 3:
+        datasets = [sys.argv[1]]  # HPC: dataset via submit.sh arg
+        models = [sys.argv[2]]    # HPC: model via submit.sh arg
+    else:
+        datasets = ["IBM_AML_LiSmall"]
+        models = ["MLP", "GCN", "GAT", "GIN", "XGB", "RF", "SVM"]
 else:
     dataset_paths = {
         "Elliptic": 'Datasets/Elliptic_dataset',
