@@ -1,5 +1,6 @@
 import torch
 from torch_geometric.data import InMemoryDataset, Data
+from torch_geometric.utils import sort_edge_index
 import os.path as osp
 import os
 import pandas as pd
@@ -64,6 +65,9 @@ class EllipticDataset(InMemoryDataset):
         edge_index_directed = torch.tensor(edgelist_df.values.T, dtype=torch.long)
         edge_index_tensor = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
+        )
+        edge_index_tensor = sort_edge_index(
+            edge_index_tensor, num_nodes=features_tensor.shape[0]
         )
         y_tensor = torch.tensor(classes_df['class'].values, dtype=torch.long)
 
@@ -238,6 +242,7 @@ class IBMAMLDataset_HiSmall(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -401,6 +406,7 @@ class IBMAMLDataset_LiSmall(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -566,6 +572,7 @@ class IBMAMLDataset_LiMedium(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -732,6 +739,7 @@ class IBMAMLDataset_HiMedium(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
+        edge_index = sort_edge_index(edge_index, num_nodes=x.shape[0])
 
         # 8. Create Masks (60/20/20 split)
         mask = torch.tensor([False] * num_obs)
@@ -824,6 +832,7 @@ class AMLSimDataset(InMemoryDataset):
         edge_index = torch.cat(
             [edge_index_directed, edge_index_directed.flip(0)], dim=1
         )
+        edge_index = sort_edge_index(edge_index, num_nodes=num_accounts)
         print(f"Number of edges (transactions): {edge_index.shape[1]}")
 
         # 5. Account-level features

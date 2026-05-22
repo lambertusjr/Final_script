@@ -408,19 +408,29 @@ def neighbor_loader_kwargs(num_workers=None):
     re-spawning workers and falling back to single-process sampling; this
     keeps workers alive across epochs and pages CPU samples into pinned
     memory for faster H2D copies.
+
+    Worker count is adaptive: HPC runs under a cgroup memory limit keep the
+    conservative cap of 2; workstations with headroom scale up since each
+    worker forks the graph + holds pinned-memory prefetch buffers (~1-2 GB
+    per worker for AMLSim-scale graphs).
     """
     if num_workers is None:
-        # Windows uses spawn (not fork) for multiprocessing, making workers
-        # much more fragile — they die under graph-memory pressure. Use 0
-        # (main-process loading) on Windows; 2 workers on Linux/HPC.
         if sys.platform == 'win32':
             num_workers = 0
         else:
-            # Halved from 4 to 2: each worker forks the graph and prefetches into
-            # pinned memory, so worker count multiplies CPU memory pressure under
-            # the PBS cgroup limit. 2 workers still hides sampling latency without
-            # blowing past the mem allocation.
-            num_workers = min(2, (os.cpu_count() or 1))
+            from utilities import check_ram_usage, _read_cgroup_memory
+            cpu_cap = (os.cpu_count() or 1)
+            cg = _read_cgroup_memory()
+            if cg is not None:
+                num_workers = min(2, cpu_cap)
+            else:
+                _, avail_gb = check_ram_usage()
+                if avail_gb > 24:
+                    num_workers = min(6, cpu_cap)
+                elif avail_gb > 12:
+                    num_workers = min(4, cpu_cap)
+                else:
+                    num_workers = min(2, cpu_cap)
     kwargs = {'num_workers': num_workers}
     if num_workers > 0:
         kwargs['persistent_workers'] = True
@@ -429,7 +439,7 @@ def neighbor_loader_kwargs(num_workers=None):
     return kwargs
 
 
-def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbors=[10, 10], dataset_name=None, model_name=None, phase='tuning'):
+def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbors=[10, 5], dataset_name=None, model_name=None, phase='tuning'):
     """
     Finds the optimal batch size for NeighborLoader by testing increasing sizes
     until OOM, then binary searching. Prevents spillover to system RAM.
@@ -508,7 +518,8 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 num_neighbors=num_neighbors,
                 batch_size=batch_size,
                 input_nodes=train_mask,
-                shuffle=True
+                shuffle=True,
+                **neighbor_loader_kwargs()
             )
 
             model.train()
