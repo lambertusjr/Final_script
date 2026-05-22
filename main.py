@@ -5,7 +5,7 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 import gc
 from dependencies import *
 from utilities import *
-from helper_functions import check_study_existence
+from helper_functions import check_study_existence, ensure_edge_index_column_sorted
 from funcs_for_optuna import hyperparameter_tuning
 from testing import run_final_evaluation
 import optuna
@@ -86,6 +86,7 @@ for idx, dataset in enumerate(datasets, 1):
                 data = AMLSimDataset(root=dataset_paths["AMLSim"])[0]
                 dataset = "AMLSim"
         print(f"Dataset {dataset} loaded successfully for hyperparameter tuning.")
+        data = ensure_edge_index_column_sorted(data, name=dataset)
 
         data, masks = extract_and_remove_masks(data)
         print(f"Masks extracted and removed from data variable")
@@ -180,6 +181,7 @@ for idx, dataset in enumerate(datasets, 1):
             from pre_processing import AMLSimDataset
             data = AMLSimDataset(root=dataset_paths["AMLSim"])[0]
 
+    data = ensure_edge_index_column_sorted(data, name=dataset)
     data, masks = extract_and_remove_masks(data)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

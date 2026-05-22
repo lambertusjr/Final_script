@@ -415,6 +415,31 @@ def _log_sampler_backend_once():
         print("[sampler] pyg-lib NOT installed -> falling back to slow Python sampler")
 
 
+def ensure_edge_index_column_sorted(data, name=None):
+    """
+    Validate that data.edge_index is sorted by destination column (CSC layout)
+    so NeighborLoader(is_sorted=True) is safe. If the on-disk cache predates
+    the column-sort change, re-sort in memory with a warning rather than
+    silently feeding lies to the sampler.
+
+    Returns the (possibly modified) data object.
+    """
+    ei = data.edge_index
+    col = ei[1]
+    is_sorted = bool(torch.all(col[1:] >= col[:-1]).item())
+    if is_sorted:
+        return data
+    from torch_geometric.utils import sort_edge_index
+    tag = f" [{name}]" if name else ""
+    print(f"[sampler]{tag} edge_index is not column-sorted -> resorting in memory. "
+          f"Delete Datasets/.../processed/*.pt and rerun pre_process_datasets.py "
+          f"to make this persistent.")
+    data.edge_index = sort_edge_index(
+        ei, num_nodes=data.num_nodes, sort_by_row=False,
+    )
+    return data
+
+
 def neighbor_loader_kwargs(num_workers=None):
     """
     Standard NeighborLoader kwargs that we want everywhere a loader is built
