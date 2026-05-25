@@ -135,7 +135,7 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
               f"(batch_size={MLP_IN_VRAM_BATCH_SIZE}, no NeighborLoader)")
 
     if use_loader:
-        num_neighbors = [10, 10]
+        num_neighbors = [10, 5]
 
         def _model_builder():
             class MockTrial:
@@ -173,11 +173,13 @@ def evaluate_model_performance(model_name, best_params, data, masks, dataset_nam
         loader_kwargs = neighbor_loader_kwargs()
         train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                       batch_size=tuning_batch_size,
-                                      input_nodes=combined_train_mask, **loader_kwargs)
+                                      input_nodes=combined_train_mask,
+                                      is_sorted=True, **loader_kwargs)
         val_loader   = None
         test_loader  = NeighborLoader(data, num_neighbors=num_neighbors,
                                       batch_size=eval_batch_size,
-                                      input_nodes=test_mask, **loader_kwargs)
+                                      input_nodes=test_mask,
+                                      is_sorted=True, **loader_kwargs)
     else:
         print(f"  > Using FULL BATCH for {model_name} on {dataset_name} (no NeighborLoader)")
 

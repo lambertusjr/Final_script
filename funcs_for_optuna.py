@@ -44,7 +44,7 @@ def hyperparameter_tuning(
     sklearn_models = ['SVM', 'XGB', 'RF']
 
     loader_datasets = {"AMLSim", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "IBM_AML_HiSmall", "IBM_AML_LiSmall"} #All datasets except Elliptic use NeighborLoader for training, so all datasets except Elliptic are in this set.
-    num_neighbors = [10, 10]
+    num_neighbors = [10, 5]
 
     for model_name in tqdm(models, desc="Models", unit="model"):
         if model_name in wrapper_models:
@@ -144,7 +144,7 @@ def hyperparameter_tuning(
 
     return model_parameters
 
-def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=None, num_neighbors=[10, 10]):
+def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=None, num_neighbors=[10, 5]):
     train_mask = masks['train_mask']
     # Bug 15 fix: device must be defined before any conditional block that uses it
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -212,10 +212,10 @@ def objective(trial, model, data, alpha_focal, dataset_name, masks, batch_size=N
             loader_kwargs = neighbor_loader_kwargs()
             train_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                           batch_size=batch_size, input_nodes=train_mask,
-                                          shuffle=True, **loader_kwargs)
+                                          shuffle=True, is_sorted=True, **loader_kwargs)
             val_loader = NeighborLoader(data, num_neighbors=num_neighbors,
                                         batch_size=batch_size, input_nodes=masks['val_mask'],
-                                        **loader_kwargs)
+                                        is_sorted=True, **loader_kwargs)
             _best_wts, best_pr_auc = train_and_validate_with_loader(
                 model_wrapper, train_loader, val_loader, n_epochs, trial=trial
             )

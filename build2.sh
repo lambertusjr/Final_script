@@ -33,11 +33,27 @@ RP_PIP="$TMP/RP_env/bin/pip"
 echo ">>> Installing PyG binaries from $PYG_WHEEL_URL"
 $RP_PIP install torch_geometric
 
-# Note: We explicitly DO NOT install pyg_lib if it causes GLIBC issues.
-# torch-sparse is sufficient for NeighborSampler.
 $RP_PIP install torch_scatter torch_sparse torch_cluster torch_spline_conv \
     -f "$PYG_WHEEL_URL" \
-    --no-index  # Forces pip to fail if it can't find wheels at the URL (prevents PyPI fallback)
+    --no-index
+
+# Optional: pyg-lib provides the fastest C++ NeighborLoader sampler (2-5x over
+# torch-sparse). Install attempt is non-fatal — if the cluster GLIBC is too old
+# for the prebuilt wheel, the job continues and code falls back to torch-sparse
+# automatically.
+echo ">>> Attempting pyg_lib install (optional — sampling still works without it)"
+$RP_PIP install pyg_lib \
+    -f "$PYG_WHEEL_URL" \
+    --no-index \
+    || echo "WARNING: pyg_lib install failed (likely GLIBC < 2.28). Continuing with torch-sparse sampler."
+
+# Log which sampler backend will be active
+$TMP/RP_env/bin/python -c "
+try:
+    import pyg_lib; print('SAMPLER BACKEND: pyg-lib', pyg_lib.__version__, '(C++ fast path)')
+except ImportError:
+    import torch_sparse; print('SAMPLER BACKEND: torch-sparse', torch_sparse.__version__, '(fallback)')
+"
 
 # 4. Pack the Environment
 echo ">>> Packing Environment..."

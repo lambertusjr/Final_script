@@ -401,6 +401,45 @@ def inference_mode_if_needed(model_name: str):
     else:
         yield
 
+_SAMPLER_BACKEND_LOGGED = False
+
+def _log_sampler_backend_once():
+    global _SAMPLER_BACKEND_LOGGED
+    if _SAMPLER_BACKEND_LOGGED:
+        return
+    _SAMPLER_BACKEND_LOGGED = True
+    try:
+        import pyg_lib
+        print(f"[sampler] pyg-lib {pyg_lib.__version__} detected -> C++ neighbor sampler ACTIVE")
+    except ImportError:
+        print("[sampler] pyg-lib NOT installed -> falling back to slow Python sampler")
+
+
+def ensure_edge_index_column_sorted(data, name=None):
+    """
+    Validate that data.edge_index is sorted by destination column (CSC layout)
+    so NeighborLoader(is_sorted=True) is safe. If the on-disk cache predates
+    the column-sort change, re-sort in memory with a warning rather than
+    silently feeding lies to the sampler.
+
+    Returns the (possibly modified) data object.
+    """
+    ei = data.edge_index
+    col = ei[1]
+    is_sorted = bool(torch.all(col[1:] >= col[:-1]).item())
+    if is_sorted:
+        return data
+    from torch_geometric.utils import sort_edge_index
+    tag = f" [{name}]" if name else ""
+    print(f"[sampler]{tag} edge_index is not column-sorted -> resorting in memory. "
+          f"Delete Datasets/.../processed/*.pt and rerun pre_process_datasets.py "
+          f"to make this persistent.")
+    data.edge_index = sort_edge_index(
+        ei, num_nodes=data.num_nodes, sort_by_row=False,
+    )
+    return data
+
+
 def neighbor_loader_kwargs(num_workers=None):
     """
     Standard NeighborLoader kwargs that we want everywhere a loader is built
@@ -408,19 +447,30 @@ def neighbor_loader_kwargs(num_workers=None):
     re-spawning workers and falling back to single-process sampling; this
     keeps workers alive across epochs and pages CPU samples into pinned
     memory for faster H2D copies.
+
+    Worker count is adaptive: HPC runs under a cgroup memory limit keep the
+    conservative cap of 2; workstations with headroom scale up since each
+    worker forks the graph + holds pinned-memory prefetch buffers (~1-2 GB
+    per worker for AMLSim-scale graphs).
     """
+    _log_sampler_backend_once()
     if num_workers is None:
-        # Windows uses spawn (not fork) for multiprocessing, making workers
-        # much more fragile — they die under graph-memory pressure. Use 0
-        # (main-process loading) on Windows; 2 workers on Linux/HPC.
         if sys.platform == 'win32':
             num_workers = 0
         else:
-            # Halved from 4 to 2: each worker forks the graph and prefetches into
-            # pinned memory, so worker count multiplies CPU memory pressure under
-            # the PBS cgroup limit. 2 workers still hides sampling latency without
-            # blowing past the mem allocation.
-            num_workers = min(2, (os.cpu_count() or 1))
+            from utilities import check_ram_usage, _read_cgroup_memory
+            cpu_cap = (os.cpu_count() or 1)
+            cg = _read_cgroup_memory()
+            if cg is not None:
+                num_workers = min(2, cpu_cap)
+            else:
+                _, avail_gb = check_ram_usage()
+                if avail_gb > 24:
+                    num_workers = min(6, cpu_cap)
+                elif avail_gb > 12:
+                    num_workers = min(4, cpu_cap)
+                else:
+                    num_workers = min(2, cpu_cap)
     kwargs = {'num_workers': num_workers}
     if num_workers > 0:
         kwargs['persistent_workers'] = True
@@ -429,7 +479,7 @@ def neighbor_loader_kwargs(num_workers=None):
     return kwargs
 
 
-def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbors=[10, 10], dataset_name=None, model_name=None, phase='tuning'):
+def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbors=[10, 5], dataset_name=None, model_name=None, phase='tuning'):
     """
     Finds the optimal batch size for NeighborLoader by testing increasing sizes
     until OOM, then binary searching. Prevents spillover to system RAM.
@@ -508,7 +558,9 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
                 num_neighbors=num_neighbors,
                 batch_size=batch_size,
                 input_nodes=train_mask,
-                shuffle=True
+                shuffle=True,
+                is_sorted=True,
+                **neighbor_loader_kwargs()
             )
 
             model.train()

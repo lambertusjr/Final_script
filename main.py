@@ -5,7 +5,7 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 import gc
 from dependencies import *
 from utilities import *
-from helper_functions import check_study_existence
+from helper_functions import check_study_existence, ensure_edge_index_column_sorted
 from funcs_for_optuna import hyperparameter_tuning
 from testing import run_final_evaluation
 import optuna
@@ -32,9 +32,12 @@ if platform.system() == 'Linux':
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
     import sys
-    datasets = [sys.argv[1]] #Getting dataset variable from submit.sh script
-    models = [sys.argv[2]] #Getting model variable from submit.sh script
-    
+    if len(sys.argv) >= 3:
+        datasets = [sys.argv[1]]  # HPC: dataset via submit.sh arg
+        models = [sys.argv[2]]    # HPC: model via submit.sh arg
+    else:
+        datasets = ["IBM_AML_LiSmall"]
+        models = ["MLP", "GCN", "GAT", "GIN", "XGB", "RF", "SVM"]
 else:
     dataset_paths = {
         "Elliptic": 'Datasets/Elliptic_dataset',
@@ -44,8 +47,8 @@ else:
         "IBM_AML_LiMedium": 'Datasets/IBM_AML_dataset/LiMedium',
         "AMLSim": 'Datasets/AMLSim_dataset'
     }
-    datasets = ["IBM_AML_HiSmall"]
-    models = ["GIN"]
+    datasets = ["IBM_AML_LiSmall"]
+    models = [ "MLP", "GCN", "GAT", "GIN", "XGB", "RF", "SVM"]
 #"IBM_AML_HiSmall", "IBM_AML_LiSmall", "IBM_AML_HiMedium", "IBM_AML_LiMedium", "AMLSim", "Elliptic"
 print(f"Starting batch processing for {len(datasets)} datasets: {', '.join(datasets)}")
 print("=" * 80)
@@ -86,6 +89,7 @@ for idx, dataset in enumerate(datasets, 1):
                 data = AMLSimDataset(root=dataset_paths["AMLSim"])[0]
                 dataset = "AMLSim"
         print(f"Dataset {dataset} loaded successfully for hyperparameter tuning.")
+        data = ensure_edge_index_column_sorted(data, name=dataset)
 
         data, masks = extract_and_remove_masks(data)
         print(f"Masks extracted and removed from data variable")
@@ -180,6 +184,7 @@ for idx, dataset in enumerate(datasets, 1):
             from pre_processing import AMLSimDataset
             data = AMLSimDataset(root=dataset_paths["AMLSim"])[0]
 
+    data = ensure_edge_index_column_sorted(data, name=dataset)
     data, masks = extract_and_remove_masks(data)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
