@@ -37,7 +37,7 @@ if platform.system() == 'Linux':
         models = [sys.argv[2]]    # HPC: model via submit.sh arg
     else:
         datasets = ["IBM_AML_LiSmall"]
-        models = ["MLP", "GCN", "GAT", "GIN", "XGB", "RF", "SVM"]
+        models = ["MLP","GIN"]
 else:
     dataset_paths = {
         "Elliptic": 'Datasets/Elliptic_dataset',
