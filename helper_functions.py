@@ -411,8 +411,10 @@ def _log_sampler_backend_once():
     try:
         import pyg_lib
         print(f"[sampler] pyg-lib {pyg_lib.__version__} detected -> C++ neighbor sampler ACTIVE")
-    except ImportError:
-        print("[sampler] pyg-lib NOT installed -> falling back to slow Python sampler")
+    except (ImportError, OSError):
+        # OSError covers the GLIBC-too-old case where the wheel installs but
+        # libpyg.so fails to dlopen at import time.
+        print("[sampler] pyg-lib not usable -> falling back to torch-sparse sampler")
 
 
 def ensure_edge_index_column_sorted(data, name=None):

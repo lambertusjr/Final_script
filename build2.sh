@@ -47,12 +47,20 @@ $RP_PIP install pyg_lib \
     --no-index \
     || echo "WARNING: pyg_lib install failed (likely GLIBC < 2.28). Continuing with torch-sparse sampler."
 
-# Log which sampler backend will be active
+# Log which sampler backend will be active.
+# Catch OSError too: on old GLIBC clusters the wheel installs but libpyg.so
+# fails to dlopen, which raises OSError rather than ImportError.
+# If pyg_lib is broken, uninstall it so the packed env doesn't carry a dud package.
 $TMP/RP_env/bin/python -c "
+import sys, subprocess
 try:
-    import pyg_lib; print('SAMPLER BACKEND: pyg-lib', pyg_lib.__version__, '(C++ fast path)')
-except ImportError:
-    import torch_sparse; print('SAMPLER BACKEND: torch-sparse', torch_sparse.__version__, '(fallback)')
+    import pyg_lib
+    print('SAMPLER BACKEND: pyg-lib', pyg_lib.__version__, '(C++ fast path)')
+except (ImportError, OSError) as e:
+    print('WARNING: pyg_lib not usable (' + str(e) + '). Uninstalling.')
+    subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'pyg_lib'], check=False)
+    import torch_sparse
+    print('SAMPLER BACKEND: torch-sparse', torch_sparse.__version__, '(fallback)')
 "
 
 # 4. Pack the Environment
