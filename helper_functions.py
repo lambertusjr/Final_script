@@ -528,7 +528,12 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     
     num_train_nodes = int(train_mask.sum()) if train_mask.dtype == torch.bool else len(train_mask)
     low = 16384  # Start higher for better GPU utilization
-    high = num_train_nodes  # Cap at total training nodes — larger is meaningless
+    # Cap at 131072 (128K). Beyond this, NeighborLoader sampling cost dominates
+    # CPU RAM (a 128K batch with [10,5] fanout samples ~8M nodes; doubling the
+    # batch doubles the working set but barely moves GPU throughput). Without
+    # this cap, the probe was picking ~750K on LiMedium and pushing the PBS
+    # cgroup to 98% RAM, leaving no headroom for the actual trial workers.
+    high = min(num_train_nodes, 400072)
     optimal = 65536 # Higher safe default
     
     from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
@@ -537,7 +542,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     def test_batch_size(batch_size):
         # Guard: check RAM and VRAM before even attempting this batch size.
         usage_pct, avail_gb = check_ram_usage()
-        if ram_is_critical(threshold=0.85):
+        if ram_is_critical(threshold=0.75):
             print(f"Batch size {batch_size} skipped: RAM already at {usage_pct:.1f}% "
                   f"({avail_gb:.1f} GB available) before test started.")
             return False
@@ -586,9 +591,12 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
 
                 steps += 1
 
-                # Check RAM after every batch step so we catch pressure early
+                # Check RAM after every batch step so we catch pressure early.
+                # 75% threshold gives a real safety margin — by the time we hit
+                # 85% the PBS cgroup is so close to OOM that workers can't be
+                # spawned for subsequent epochs.
                 usage_pct, avail_gb = check_ram_usage()
-                if ram_is_critical(threshold=0.85):
+                if ram_is_critical(threshold=0.75):
                     ram_exceeded = True
                     print(f"Batch size {batch_size} rejected at step {steps}: "
                           f"RAM usage {usage_pct:.1f}% ({avail_gb:.1f} GB available). "
