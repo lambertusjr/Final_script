@@ -807,6 +807,14 @@ class AMLSimDataset(InMemoryDataset):
         })
         txn['IS_FRAUD'] = txn['IS_FRAUD'].fillna(0).astype(int)
 
+        # Leakage fix: order transactions chronologically so the split and the
+        # feature aggregation below are time-aware. AMLSim TIMESTAMP may be an
+        # integer simulation step or a date string; parse strings to datetime so
+        # they sort chronologically (numeric stamps already sort correctly).
+        if not pd.api.types.is_numeric_dtype(txn['TIMESTAMP']):
+            txn['TIMESTAMP'] = pd.to_datetime(txn['TIMESTAMP'], errors='coerce')
+        txn = txn.sort_values('TIMESTAMP', kind='stable').reset_index(drop=True)
+
         # 2. Build account-to-index mapping (nodes = accounts)
         all_account_ids = sorted(accounts_df['ACCOUNT_ID'].unique())
         account_to_idx = {acc_id: idx for idx, acc_id in enumerate(all_account_ids)}
@@ -836,56 +844,96 @@ class AMLSimDataset(InMemoryDataset):
         edge_index = sort_edge_index(edge_index, num_nodes=num_accounts, sort_by_row=False)
         print(f"Number of edges (transactions): {edge_index.shape[1]}")
 
-        # 5. Account-level features
+        # 5. Temporal train/val/test split (60/20/20) on accounts.
+        #    Leakage fix: previously accounts were split by sorted ACCOUNT_ID
+        #    (no temporal holdout) and features were aggregated over the entire
+        #    timeline, so val/test-period transactions leaked into the training
+        #    feature matrix. We now order accounts by the time of their first
+        #    transaction (consistent with the temporal splits used for the
+        #    Elliptic/IBM datasets) and build features point-in-time (see step 6).
+        sender_first = txn.groupby('SENDER_ACCOUNT')['TIMESTAMP'].min()
+        receiver_first = txn.groupby('RECEIVER_ACCOUNT')['TIMESTAMP'].min()
+        first_seen = pd.concat([sender_first, receiver_first]).groupby(level=0).min()
+        first_seen = first_seen.reindex(all_account_ids)
+        # Accounts that never transact have no timestamp; treat them as earliest
+        # so they fall into the training split rather than the test horizon.
+        first_seen = first_seen.fillna(txn['TIMESTAMP'].min())
+
+        ordered_accounts = first_seen.sort_values(kind='stable').index.tolist()
+        train_size = int(0.6 * num_accounts)
+        val_size = int(0.2 * num_accounts)
+        train_accounts = set(ordered_accounts[:train_size])
+        val_accounts = set(ordered_accounts[train_size:train_size + val_size])
+        test_accounts = set(ordered_accounts[train_size + val_size:])
+
+        # Boundary timestamps between the splits (used to bound feature horizons).
+        t_train = first_seen.loc[ordered_accounts[train_size]]
+        t_val = first_seen.loc[ordered_accounts[train_size + val_size]]
+
+        train_mask = torch.tensor([a in train_accounts for a in all_account_ids], dtype=torch.bool)
+        val_mask = torch.tensor([a in val_accounts for a in all_account_ids], dtype=torch.bool)
+        test_mask = torch.tensor([a in test_accounts for a in all_account_ids], dtype=torch.bool)
+        for name, m in (('train', train_mask), ('val', val_mask), ('test', test_mask)):
+            n = int(m.sum())
+            pos = int(y[m].sum())
+            print(f"  {name}: {n} accounts, {pos} illicit ({100 * pos / max(n, 1):.2f}%)")
+
+        # 6. Account-level features (point-in-time to avoid temporal leakage)
         #    - INIT_BALANCE from accounts.csv (direct feature, no computation)
-        #    - Aggregated transaction amounts per account (mean/total sent & received)
+        #    - Aggregated transaction amounts per account (mean/total sent &
+        #      received). Each account only "sees" transactions up to the end of
+        #      its own split horizon: train accounts use train-period transactions
+        #      only, val accounts use train+val, test accounts use everything.
         accounts_sorted = accounts_df.set_index('ACCOUNT_ID').loc[all_account_ids]
 
-        sent_agg = txn.groupby('SENDER_ACCOUNT')['TX_AMOUNT'].agg(
-            mean_amount_sent='mean', total_amount_sent='sum'
-        )
-        recv_agg = txn.groupby('RECEIVER_ACCOUNT')['TX_AMOUNT'].agg(
-            mean_amount_received='mean', total_amount_received='sum'
-        )
+        def _agg(sub_txn):
+            sent = sub_txn.groupby('SENDER_ACCOUNT')['TX_AMOUNT'].agg(
+                mean_amount_sent='mean', total_amount_sent='sum'
+            )
+            recv = sub_txn.groupby('RECEIVER_ACCOUNT')['TX_AMOUNT'].agg(
+                mean_amount_received='mean', total_amount_received='sum'
+            )
+            return sent, recv
 
+        train_sent, train_recv = _agg(txn[txn['TIMESTAMP'] < t_train])
+        val_sent, val_recv = _agg(txn[txn['TIMESTAMP'] < t_val])
+        test_sent, test_recv = _agg(txn)
+
+        agg_cols = ['mean_amount_sent', 'total_amount_sent',
+                    'mean_amount_received', 'total_amount_received']
         feat_df = pd.DataFrame({'ACCOUNT_ID': all_account_ids})
         feat_df = feat_df.merge(
             accounts_sorted[['INIT_BALANCE']].reset_index(),
             on='ACCOUNT_ID', how='left'
         )
-        feat_df = feat_df.merge(sent_agg, left_on='ACCOUNT_ID', right_index=True, how='left')
-        feat_df = feat_df.merge(recv_agg, left_on='ACCOUNT_ID', right_index=True, how='left')
-        feat_df = feat_df.fillna(0)
+        feat_df = feat_df.set_index('ACCOUNT_ID')
+        for col in agg_cols:
+            feat_df[col] = 0.0
 
-        # 6. Train/val/test split (60/20/20) on accounts
-        train_size = int(0.6 * num_accounts)
-        val_size = int(0.2 * num_accounts)
+        def _fill(accounts, sent, recv):
+            acc_idx = feat_df.index.intersection(accounts)
+            common_s = acc_idx.intersection(sent.index)
+            feat_df.loc[common_s, ['mean_amount_sent', 'total_amount_sent']] = \
+                sent.loc[common_s].values
+            common_r = acc_idx.intersection(recv.index)
+            feat_df.loc[common_r, ['mean_amount_received', 'total_amount_received']] = \
+                recv.loc[common_r].values
 
-        train_df = feat_df.iloc[:train_size].copy()
-        val_df = feat_df.iloc[train_size:train_size + val_size].copy()
-        test_df = feat_df.iloc[train_size + val_size:].copy()
+        _fill(train_accounts, train_sent, train_recv)
+        _fill(val_accounts, val_sent, val_recv)
+        _fill(test_accounts, test_sent, test_recv)
+        feat_df = feat_df.reset_index().fillna(0)
 
-        # 7. Normalise numerical features (fit on train only)
-        num_cols = ['INIT_BALANCE', 'mean_amount_sent', 'total_amount_sent',
-                    'mean_amount_received', 'total_amount_received']
+        # 7. Normalise numerical features (fit on train accounts only)
+        num_cols = ['INIT_BALANCE'] + agg_cols
+        train_rows = train_mask.numpy()
         scaler = StandardScaler()
-        train_df[num_cols] = scaler.fit_transform(train_df[num_cols])
-        val_df[num_cols] = scaler.transform(val_df[num_cols])
-        test_df[num_cols] = scaler.transform(test_df[num_cols])
+        scaler.fit(feat_df.loc[train_rows, num_cols])
+        feat_df[num_cols] = scaler.transform(feat_df[num_cols])
 
-        feat_df = pd.concat([train_df, val_df, test_df])
         feature_cols = [c for c in feat_df.columns if c != 'ACCOUNT_ID']
         x = torch.tensor(feat_df[feature_cols].values, dtype=torch.float)
         print(f"Feature matrix shape: {x.shape}  ({len(feature_cols)} features: {feature_cols})")
-
-        # 8. Create masks
-        mask = torch.zeros(num_accounts, dtype=torch.bool)
-        train_mask = mask.clone()
-        train_mask[:train_size] = True
-        val_mask = mask.clone()
-        val_mask[train_size:train_size + val_size] = True
-        test_mask = mask.clone()
-        test_mask[train_size + val_size:] = True
 
         # 9. Create Data object and save
         data = Data(x=x, edge_index=edge_index, y=y)
