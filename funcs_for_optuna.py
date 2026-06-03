@@ -47,10 +47,7 @@ def hyperparameter_tuning(
     num_neighbors = [10, 5]
 
     for model_name in tqdm(models, desc="Models", unit="model"):
-        if model_name in wrapper_models:
-            n_trials = 150
-        else:
-            n_trials = 100
+        n_trials = 200
         study_name = f'{model_name}_optimization on {dataset_name} dataset'
         db_path = f'sqlite:///optimization_results_on_{dataset_name}_{model_name}.db'
         if check_study_existence(model_name, dataset_name):

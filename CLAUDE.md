@@ -52,7 +52,7 @@ Elliptic has unique `*_perf_eval_mask` variants for evaluating only on known-lab
 - `_` prefix for internal/helper functions
 - Aggressive GPU memory management: `torch.cuda.empty_cache()`, `gc.collect()`, strategic `del`
 - FocalLoss used to handle class imbalance
-- Optuna trials: 100 for GNNs, 50 for sklearn models
+- Optuna trials: 200 for all models
 - Primary optimization metric: F1-illicit (validation set)
 - Bug fixes documented inline with numbered comments (e.g., `# Bug 19 fix: ...`)
 
