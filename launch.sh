@@ -18,7 +18,7 @@ SCRIPT="submit_RP.sh"
 
 # Resource string: matches submit_RP.sh's #PBS -l select. Edit here if your
 # default resource needs change (or pass --select="..." in the future).
-SELECT_TEMPLATE='select=1:ncpus=4:mem=120GB:ngpus=1:Qlist=ee:host=comp0%s'
+SELECT_TEMPLATE='select=1:ncpus=8:mem=160GB:ngpus=1:Qlist=ee:host=comp0%s'
 
 # Parse "DATASET MODEL NODE GPU" or "DATASET MODEL NODE:GPU".
 parse_args() {

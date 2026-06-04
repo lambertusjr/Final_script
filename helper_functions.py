@@ -533,7 +533,7 @@ def find_optimal_batch_size(model_builder, data, device, train_mask, num_neighbo
     # batch doubles the working set but barely moves GPU throughput). Without
     # this cap, the probe was picking ~750K on LiMedium and pushing the PBS
     # cgroup to 98% RAM, leaving no headroom for the actual trial workers.
-    high = min(num_train_nodes, 400072)
+    high = min(num_train_nodes, 800000)
     optimal = 65536 # Higher safe default
     
     from utilities import ram_is_critical, check_ram_usage, vram_is_critical, check_vram_usage
